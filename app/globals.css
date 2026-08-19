@@ -1174,6 +1174,24 @@ textarea.input {
   padding: 14px 16px;
 }
 
+/* Something worth knowing rather than something that went wrong. */
+.notice-info {
+  border-left-color: var(--accent);
+}
+
+/* Destructive actions. A class rather than an inline style, so the token stays in one file. */
+.is-danger {
+  color: var(--s-blocked);
+}
+
+/* Centres a glyph that is marked aria-hidden, since the button carries the real name. */
+.icon-button-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
 .stack {
   display: flex;
   flex-direction: column;

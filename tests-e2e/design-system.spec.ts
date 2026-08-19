@@ -255,6 +255,20 @@ test.describe("typography", () => {
     expect(families.filter((f) => f.includes("newsreader") || f.includes("georgia"))).toEqual([]);
   });
 
+  test("controls behind a disclosure are audited too", async ({ page }) => {
+    // The audit walks pages as they load, so anything behind an open state is never
+    // measured. The column manager is the clearest case: its whole panel — including the
+    // icon-only reorder buttons — was invisible to every floor and hue check here. That
+    // matters most right after those controls were swapped for a component library.
+    await page.goto("/p/eta-board/board");
+    await page.getByTestId("manage-columns").click();
+    await expect(page.getByTestId("column-manager")).toBeVisible();
+
+    expect(await collectViolations(page, "purple")).toEqual([]);
+    expect(await collectViolations(page, "small-text")).toEqual([]);
+    expect(await collectViolations(page, "small-tap")).toEqual([]);
+  });
+
   test("cards are tall enough to read at a glance", async ({ page }) => {
     await page.goto("/p/eta-board/board");
     const box = await page.getByTestId("card-1").boundingBox();

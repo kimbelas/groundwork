@@ -121,6 +121,21 @@ and this paragraph has itself been stale once, which is the point.
 - **Playwright workers are pinned to 2.** Every worker drives one shared Next dev
   server on a 4-core box; the default is derived from core count, which made the
   suite's outcome depend on ambient machine load. Raise it only with measurement.
+- **A cancelled e2e run poisons the next one.** Killing the suite leaves its
+  `next dev` alive holding `.next-e2e`, and `playwright.config.ts` sets
+  `reuseExistingServer`, so the following run adopts that half-dead server instead of
+  starting a fresh one. It surfaced as a 500 on `/p/alpha-portal/log` during warmup —
+  a route nothing had touched. After killing a run: `taskkill /PID <pid> /F` on the
+  process listening at 4849, then `rm -rf .next-e2e`. The PID is printed by the next
+  `next dev` that refuses to start.
+- **`warmup.setup.ts` is a single point of failure, deliberately.** It compiles every
+  route before the suite, so a broken build fails once instead of 180 times — but a
+  failure there means ~180 tests **never run**, and the summary says `1 failed` rather
+  than anything about the silence. Read what actually ran before trusting a small
+  failure count.
+- **The full suite is ~7 minutes and gets killed by long-running-command limits.**
+  Running it in spec batches is equivalent and finishes: each batch re-runs the warmup
+  setup, so the totals add up to the suite count plus one per extra batch.
 - A UI component must not unmount itself before reporting what it did. Closing a pane
   or clearing state in an `onApplied`/success handler destroys the confirmation the
   user needs. Three separate bugs of this shape have shipped and been caught.

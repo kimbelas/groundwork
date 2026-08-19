@@ -1,7 +1,13 @@
 "use client";
 
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+
+import { Button } from "@/components/ui/Button";
+import { IconButton } from "@/components/ui/IconButton";
+import { Input } from "@/components/ui/Input";
+import { Notice } from "@/components/ui/Notice";
 
 /**
  * Add, rename, reorder and remove board columns.
@@ -26,6 +32,8 @@ export function ColumnManager({
   const [added, setAdded] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Which row is being renamed, and what it has been typed to so far. */
+  const [renaming, setRenaming] = useState<{ from: string; to: string } | null>(null);
 
   const dirty = draft.length !== columns.length || draft.some((c, i) => c !== columns[i]);
 
@@ -73,31 +81,50 @@ export function ColumnManager({
     }
   }
 
-  async function rename(from: string) {
-    const to = window.prompt(`Rename "${from}" to:`, from)?.trim();
-    if (!to || to === from) return;
+  /**
+   * Rename inline, rather than through `window.prompt`.
+   *
+   * The prompt dialog could not show the surrounding columns, could not be styled, could
+   * not warn about a clash before sending, and on a phone it is a system sheet that hides
+   * the thing being renamed. It also blocks the whole page, which for an action that
+   * rewrites every card in a column is exactly backwards.
+   */
+  async function commitRename() {
+    if (!renaming) return;
+    const { from } = renaming;
+    const to = renaming.to.trim();
+
+    if (!to || to === from) {
+      setRenaming(null);
+      return;
+    }
+    if (draft.some((c) => c !== from && c.toLowerCase() === to.toLowerCase())) {
+      setError(`There is already a column called "${to}".`);
+      return;
+    }
+
     try {
       await send({ kind: "rename-column", from, to });
       setDraft((cols) => cols.map((c) => (c === from ? to : c)));
+      setRenaming(null);
     } catch {
-      /* reported above */
+      /* reported above; the field stays open so the name can be corrected */
     }
   }
 
   if (!open) {
     return (
-      <button
-        type="button"
-        className="button"
+      <Button
         onClick={() => {
           setDraft(columns);
           setError(null);
+          setRenaming(null);
           setOpen(true);
         }}
         data-testid="manage-columns"
       >
         Manage columns
-      </button>
+      </Button>
     );
   }
 
@@ -105,56 +132,78 @@ export function ColumnManager({
     <section className="raised column-manager" data-testid="column-manager">
       <p className="label">Columns</p>
 
-      {error && (
-        <div className="notice body-sm" role="alert" data-testid="columns-error">
-          {error}
-        </div>
-      )}
+      {error && <Notice data-testid="columns-error">{error}</Notice>}
 
       <ul className="column-list">
         {draft.map((name, i) => (
           <li key={name} data-testid={`column-row-${name}`}>
-            <span className="column-row-name">{name}</span>
-            <div className="row" style={{ gap: 6 }}>
-              <button
-                type="button"
-                className="icon-button"
-                disabled={busy || i === 0}
-                aria-label={`Move ${name} earlier`}
-                onClick={() => move(i, -1)}
+            {renaming?.from === name ? (
+              <form
+                className="row"
+                style={{ gap: 10, flex: 1 }}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void commitRename();
+                }}
               >
-                ↑
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                disabled={busy || i === draft.length - 1}
-                aria-label={`Move ${name} later`}
-                onClick={() => move(i, 1)}
-              >
-                ↓
-              </button>
-              <button
-                type="button"
-                className="link-button"
-                disabled={busy}
-                onClick={() => void rename(name)}
-                data-testid={`rename-${name}`}
-              >
-                rename
-              </button>
-              <button
-                type="button"
-                className="link-button"
-                disabled={busy || draft.length === 1}
-                style={{ color: "var(--s-blocked)" }}
-                aria-label={`Remove ${name}`}
-                onClick={() => setDraft((cols) => cols.filter((c) => c !== name))}
-                data-testid={`remove-${name}`}
-              >
-                remove
-              </button>
-            </div>
+                <Input
+                  label={`Rename ${name}`}
+                  value={renaming.to}
+                  autoFocus
+                  disabled={busy}
+                  onChange={(e) => setRenaming({ from: name, to: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setRenaming(null);
+                  }}
+                  style={{ maxWidth: 220 }}
+                  data-testid={`rename-input-${name}`}
+                />
+                <Button type="submit" disabled={busy} data-testid={`rename-save-${name}`}>
+                  {busy ? "Renaming..." : "Rename"}
+                </Button>
+                <Button variant="quiet" disabled={busy} onClick={() => setRenaming(null)}>
+                  cancel
+                </Button>
+              </form>
+            ) : (
+              <>
+                <span className="column-row-name">{name}</span>
+                <div className="row" style={{ gap: 6 }}>
+                  <IconButton
+                    label={`Move ${name} earlier`}
+                    disabled={busy || i === 0}
+                    onClick={() => move(i, -1)}
+                  >
+                    <ArrowUp size={16} strokeWidth={2} />
+                  </IconButton>
+                  <IconButton
+                    label={`Move ${name} later`}
+                    disabled={busy || i === draft.length - 1}
+                    onClick={() => move(i, 1)}
+                  >
+                    <ArrowDown size={16} strokeWidth={2} />
+                  </IconButton>
+                  <Button
+                    variant="quiet"
+                    disabled={busy}
+                    onClick={() => setRenaming({ from: name, to: name })}
+                    data-testid={`rename-${name}`}
+                  >
+                    rename
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    danger
+                    disabled={busy || draft.length === 1}
+                    aria-label={`Remove ${name}`}
+                    onClick={() => setDraft((cols) => cols.filter((c) => c !== name))}
+                    data-testid={`remove-${name}`}
+                  >
+                    remove
+                  </Button>
+                </div>
+              </>
+            )}
           </li>
         ))}
       </ul>
@@ -175,40 +224,38 @@ export function ColumnManager({
           setError(null);
         }}
       >
-        <input
-          className="input"
+        <Input
+          label="New column name"
           value={added}
           onChange={(e) => setAdded(e.target.value)}
           placeholder="New column name"
-          aria-label="New column name"
           style={{ maxWidth: 260 }}
         />
-        <button type="submit" className="button" disabled={busy || !added.trim()}>
+        <Button type="submit" disabled={busy || !added.trim()}>
           Add
-        </button>
+        </Button>
       </form>
 
       <div className="row" style={{ gap: 12, marginTop: 14, flexWrap: "wrap" }}>
-        <button
-          type="button"
-          className="button button-primary"
+        <Button
+          variant="primary"
           disabled={busy || !dirty}
           onClick={() => void save()}
           data-testid="save-columns"
         >
           {busy ? "Saving..." : "Save order"}
-        </button>
-        <button
-          type="button"
-          className="link-button"
+        </Button>
+        <Button
+          variant="quiet"
           disabled={busy}
           onClick={() => {
             setOpen(false);
             setError(null);
+            setRenaming(null);
           }}
         >
           done
-        </button>
+        </Button>
         <span className="body-sm faint">
           A rename updates every card in that column. A column holding cards cannot be
           removed.
