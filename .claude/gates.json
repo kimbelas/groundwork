@@ -4,7 +4,7 @@
 
   "lint": [
     {
-      "match": "\\.(tsx|jsx|css)$",
+      "match": "\\.(tsx|jsx|ts|css)$",
       "exclude": "node_modules/",
       "command": "node scripts/blueprint-lint.js"
     },
