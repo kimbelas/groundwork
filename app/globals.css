@@ -420,6 +420,12 @@ a:hover {
   line-height: 18px;
   font-weight: 500;
   color: var(--ink-soft);
+  /*
+   * Now redundant for anything routed through lib/labels.ts, which carries its own
+   * casing. It survives for the two chips still passing a bare word (validated /
+   * unvalidated). Do not rely on it for a new value, and note it would mangle a label
+   * with deliberate capitalisation - it renders "SaaS MVP" as "Saas Mvp".
+   */
   text-transform: capitalize;
   white-space: nowrap;
 }

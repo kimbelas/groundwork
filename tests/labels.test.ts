@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  archetypeLabel,
   confidenceLabel,
+  healthLabel,
+  likelihoodLabel,
   priorityLabel,
   progressLabel,
   progressPercent,
   sentenceCase,
   sizeLabel,
+  stageLabel,
 } from "@/lib/labels";
+import { ARCHETYPES, HEALTHS, LIKELIHOODS, STAGES } from "@/lib/schema";
 
 describe("priority and size labels", () => {
   it("turns codes into words", () => {
@@ -76,5 +81,53 @@ describe("sentenceCase", () => {
 
   it("handles an empty string", () => {
     expect(sentenceCase("")).toBe("");
+  });
+});
+
+/**
+ * Every enum member has a word, proved against the enums themselves.
+ *
+ * The `Record<Union, string>` maps in `lib/labels.ts` already make an unlabelled member a
+ * compile error, which is the stronger guarantee. This covers what a type cannot: someone
+ * widening a parameter to `string`, or a label that exists but is empty — both of which put
+ * a raw code like `saas-mvp` or `med` back on screen, which is the defect this fixes.
+ *
+ * Driven from the schema arrays rather than a copy, so adding a stage fails here rather
+ * than shipping.
+ */
+describe("every enum reaches the screen as words", () => {
+  const cases: Array<[string, readonly string[], (v: never) => string]> = [
+    ["stage", STAGES, stageLabel as (v: never) => string],
+    ["health", HEALTHS, healthLabel as (v: never) => string],
+    ["archetype", ARCHETYPES, archetypeLabel as (v: never) => string],
+    ["likelihood", LIKELIHOODS, likelihoodLabel as (v: never) => string],
+  ];
+
+  it.each(cases)("%s", (_name, values, label) => {
+    expect(values.length).toBeGreaterThan(0);
+    for (const value of values) {
+      const shown = label(value as never);
+      expect(shown, `${value} has no label`).toBeTruthy();
+      // A label that is just the stored value is not a translation.
+      expect(shown).not.toBe(value);
+    }
+  });
+
+  it("does not sentence-case a hyphenated archetype into nonsense", () => {
+    // sentenceCase("saas-mvp") gives "Saas-mvp", which looks like a failed attempt rather
+    // than a product name. This is why archetypes get an explicit map.
+    expect(archetypeLabel("saas-mvp")).toBe("SaaS MVP");
+    expect(archetypeLabel("saas-mvp")).not.toBe(sentenceCase("saas-mvp"));
+  });
+
+  it("gives the risk scale a word for its middle value", () => {
+    // "med" is not a word, and it reached the screen in the risk register as `med/high`.
+    expect(likelihoodLabel("med")).toBe("Medium");
+  });
+
+  it("renames the stage that collided with a column and a phase", () => {
+    // "Shaping" was simultaneously a stage, a default board column and a roadmap phase
+    // name. Only the stage changes here; the other two are separate axes.
+    expect(stageLabel("shaping")).toBe("Planning");
   });
 });

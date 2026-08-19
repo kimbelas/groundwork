@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 
 import { Chip } from "@/components/ui/Chip";
 import { healthTone, stageTone } from "@/lib/format";
+import { archetypeLabel, healthLabel, stageLabel } from "@/lib/labels";
 import { ARCHETYPES, HEALTHS, STAGES } from "@/lib/schema";
 import type { ProjectMeta } from "@/lib/schema";
 
@@ -54,13 +55,14 @@ export function MetaBar({ meta }: { meta: ProjectMeta }) {
           onChange={(e) => void apply("stage", e.target.value as ProjectMeta["stage"])}
           aria-label="Stage"
         >
+          {/* Value stays the stored code; only the text is a word. */}
           {STAGES.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {stageLabel(s)}
             </option>
           ))}
         </select>
-        <Chip tone={stageTone(local.stage)}>{local.stage}</Chip>
+        <Chip tone={stageTone(local.stage)}>{stageLabel(local.stage)}</Chip>
       </label>
 
       <label className="metabar-field">
@@ -74,11 +76,11 @@ export function MetaBar({ meta }: { meta: ProjectMeta }) {
         >
           {HEALTHS.map((h) => (
             <option key={h} value={h}>
-              {h}
+              {healthLabel(h)}
             </option>
           ))}
         </select>
-        <Chip tone={healthTone(local.health)}>{local.health}</Chip>
+        <Chip tone={healthTone(local.health)}>{healthLabel(local.health)}</Chip>
       </label>
 
       <label className="metabar-field">
@@ -92,7 +94,7 @@ export function MetaBar({ meta }: { meta: ProjectMeta }) {
         >
           {ARCHETYPES.map((a) => (
             <option key={a} value={a}>
-              {a}
+              {archetypeLabel(a)}
             </option>
           ))}
         </select>

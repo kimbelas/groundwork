@@ -3,6 +3,7 @@ import Link from "next/link";
 import { NewProject } from "@/components/project/NewProject";
 import { Chip } from "@/components/ui/Chip";
 import { healthTone, progress, relativeTime, stageTone } from "@/lib/format";
+import { healthLabel, stageLabel } from "@/lib/labels";
 import { nextAction } from "@/lib/nextAction";
 import { listProjects } from "@/lib/vault";
 
@@ -118,10 +119,10 @@ export default async function DashboardPage({
                       )}
                     </td>
                     <td data-label="Stage">
-                      <Chip tone={stageTone(summary.meta.stage)}>{summary.meta.stage}</Chip>
+                      <Chip tone={stageTone(summary.meta.stage)}>{stageLabel(summary.meta.stage)}</Chip>
                     </td>
                     <td data-label="Health">
-                      <Chip tone={healthTone(summary.meta.health)}>{summary.meta.health}</Chip>
+                      <Chip tone={healthTone(summary.meta.health)}>{healthLabel(summary.meta.health)}</Chip>
                     </td>
                     <td className="num" data-label="Phase">
                       {total === 0 ? "—" : `${done}/${total}`}

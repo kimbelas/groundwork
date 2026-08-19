@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { Chip } from "@/components/ui/Chip";
+import { likelihoodLabel } from "@/lib/labels";
 import type { Assumption, Risk } from "@/lib/schema";
 
 const IMPACT_TONE = { low: "paused", med: "idea", high: "blocked" } as const;
@@ -113,7 +114,7 @@ export function RiskRegister({
               <li key={r.id} className="register-item" data-testid={`risk-${r.id}`}>
                 <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
                   <Chip tone={IMPACT_TONE[r.impact]}>
-                    {r.likelihood}/{r.impact}
+                    {likelihoodLabel(r.likelihood)} / {likelihoodLabel(r.impact)}
                   </Chip>
                   <span>{r.text}</span>
                 </div>

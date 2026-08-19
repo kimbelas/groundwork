@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { archetypeLabel } from "@/lib/labels";
 import { ARCHETYPES } from "@/lib/schema";
 import { isValidSlug, slugify } from "@/lib/slug";
 
@@ -105,9 +106,10 @@ export function NewProject() {
           aria-label="Kind of project"
           style={{ width: "100%" }}
         >
+          {/* Value stays the stored code; only the text is a word. */}
           {ARCHETYPES.map((a) => (
             <option key={a} value={a}>
-              {a}
+              {archetypeLabel(a)}
             </option>
           ))}
         </select>

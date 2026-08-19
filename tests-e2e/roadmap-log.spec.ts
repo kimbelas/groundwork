@@ -219,7 +219,10 @@ test.describe("risk register", () => {
     await page.goto(`/p/${SLUG}/log`);
     const risk = page.getByTestId("risk-r1");
     await expect(risk).toContainText("no test environment");
-    await expect(risk).toContainText("high/high");
+    // Words, not codes. The register used to print the stored scale verbatim as
+    // "high/high" — and its middle value as "med", which is not a word at all. The file
+    // still stores `high`; only the screen reads as English.
+    await expect(risk).toContainText("High / High");
     await expect(risk).toContainText("Prove a round-trip");
   });
 
