@@ -3,7 +3,7 @@ import type { Extension } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
 
 /**
- * Markdown highlighting in Blueprint terms.
+ * Markdown highlighting, in the app's own terms.
  *
  * CodeMirror's stock highlight style paints keywords and links in its own palette —
  * including a blue-violet that lands squarely in the hue band the design forbids. More
@@ -11,14 +11,14 @@ import { tags as t } from "@lezer/highlight";
  * five status hues mean something, and nothing else in the interface is tinted.
  *
  * So structure is expressed through weight, face and the single accent instead:
- * headings step up into the serif display face, links take the accent, and everything
- * else is plain ink.
+ * headings step up in weight and size, links take the accent, and everything else is
+ * plain ink. They used to step into a serif display face; that face is gone, and this
+ * file was the one reference to it that no lint rule could reach at the time.
  */
 const style = HighlightStyle.define([
   {
     tag: t.heading,
-    fontFamily: "var(--font-newsreader), Georgia, serif",
-    fontWeight: "500",
+    fontWeight: "600",
     color: "var(--ink)",
   },
   { tag: t.heading1, fontSize: "1.35em" },
@@ -42,4 +42,4 @@ const style = HighlightStyle.define([
   { tag: [t.keyword, t.atom, t.bool, t.number, t.string, t.variableName, t.typeName, t.propertyName, t.comment, t.operator, t.punctuation], color: "var(--ink)" },
 ]);
 
-export const blueprintHighlight: Extension = syntaxHighlighting(style);
+export const markdownHighlight: Extension = syntaxHighlighting(style);

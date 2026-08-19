@@ -204,13 +204,45 @@ test.describe("typography", () => {
     expect(size).toBeGreaterThanOrEqual(16);
   });
 
-  test("project titles keep the serif display face", async ({ page }) => {
+  test("project titles out-rank body copy without a second face", async ({ page }) => {
+    // The serif display face was dropped deliberately: one sans, one mono. A title still
+    // has to read as a title, so what used to be carried by the face is now carried by
+    // size and weight — and this asserts that, rather than merely asserting the serif left.
     await page.goto("/");
-    const family = await page
+    const seen = await page
       .getByRole("table")
       .getByRole("link", { name: "Alpha Portal" })
-      .evaluate((el) => getComputedStyle(el).fontFamily);
-    expect(family.toLowerCase()).toContain("newsreader");
+      .evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          family: cs.fontFamily.toLowerCase(),
+          size: Number.parseFloat(cs.fontSize),
+          weight: Number(cs.fontWeight),
+        };
+      });
+
+    expect(seen.family).not.toContain("newsreader");
+    expect(seen.family).not.toContain("georgia");
+    expect(seen.size).toBeGreaterThanOrEqual(18);
+    expect(seen.weight).toBeGreaterThanOrEqual(500);
+  });
+
+  test("no second display face anywhere on the page", async ({ page }) => {
+    // The check above looks at one link on one page, which is not what stops a serif
+    // reappearing at a selector nobody thought to assert on. This walks everything.
+    await page.goto("/");
+    await expect(page.getByRole("table")).toBeVisible();
+
+    const families = await page.evaluate((skip) => {
+      const seen = new Set<string>();
+      for (const el of Array.from(document.querySelectorAll("body *"))) {
+        if (el.closest(skip)) continue;
+        seen.add(getComputedStyle(el).fontFamily.toLowerCase());
+      }
+      return [...seen];
+    }, SKIP_SELECTOR);
+
+    expect(families.filter((f) => f.includes("newsreader") || f.includes("georgia"))).toEqual([]);
   });
 
   test("cards are tall enough to read at a glance", async ({ page }) => {

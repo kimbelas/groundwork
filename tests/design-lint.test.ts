@@ -197,6 +197,24 @@ describe("colour and chrome", () => {
     expect(code).toBe(0);
   });
 
+  it("refuses a second display face in CSS", async () => {
+    const { code, out } = await lint(".x { font-family: var(--font-newsreader), Georgia, serif; }");
+    expect(code).toBe(1);
+    expect(out).toContain("second display face");
+  });
+
+  it("refuses a second display face in CSS-in-TS", async () => {
+    // The editor theme sets its own font from an object literal. This is the case the
+    // original `.(tsx|jsx|css)` filter could not see at all.
+    const { code } = await lint('const t = { fontFamily: "Newsreader, Georgia, serif" };', ".ts");
+    expect(code).toBe(1);
+  });
+
+  it("does not mistake the sans-serif keyword for a serif", async () => {
+    const { code } = await lint(".y { font-family: var(--font-sans), system-ui, sans-serif; }");
+    expect(code).toBe(0);
+  });
+
   it("rejects emoji in chrome", async () => {
     const { code, out } = await lint('.x::before { content: "✅"; }');
     expect(code).toBe(1);

@@ -1,79 +1,123 @@
 @import "tailwindcss";
 
 /* ============================================================================
-   Clean & Bright — see docs/05-design-system.md
+   Graphite — see docs/05-design-system.md
 
    Comfortable before dense: 17px base type, generous spacing, soft elevation,
    rounded surfaces, 44px minimum touch targets, mobile-first layout.
 
-   High-contrast near-white surfaces with cool neutrals and a clear blue accent.
-   Color still carries meaning — the five status hues mean something specific, and
-   nothing else is tinted for decoration.
+   Near-monochrome neutrals with a faint warm cast, and a single accent that only ever
+   marks state — selection, focus, progress, the current location. It is never used for
+   decoration, which is what keeps it meaning something when it appears.
+
+   Colour still carries meaning elsewhere: the five status hues say something specific.
+   Nothing else is tinted.
 
    Everything below the token block reads from these variables, which is why
    re-theming is a contained change rather than a rewrite. Keep it that way.
    ========================================================================= */
 
 :root {
-  --bg: #f8fafc;
+  --bg: #f4f4f2;
   --surface: #ffffff;
-  --surface-2: #f1f5f9;
-  --surface-sunk: #e8eef5;
+  --surface-2: #efefec;
+  --surface-sunk: #e7e7e3;
 
-  --ink: #0f172a;
-  --ink-soft: #475569;
-  --ink-faint: #94a3b8;
+  --ink: #17191a;
+  --ink-soft: #5c6164;
+  --ink-faint: #8b918f;
 
-  --line: #e2e8f0;
-  --line-strong: #cbd5e1;
+  --line: #e2e2de;
+  --line-strong: #cfcfc9;
 
-  --accent: #2563eb;
-  --accent-ink: #1d4ed8;
-  --accent-soft: #eff6ff;
+  --accent: #1f6e5b;
+  --accent-ink: #175447;
+  --accent-soft: #e2efea;
 
-  --s-idea: #d97706;
-  --s-active: #2563eb;
-  --s-blocked: #dc2626;
-  --s-done: #16a34a;
-  --s-paused: #64748b;
+  --s-idea: #b0761b;
+  --s-active: #2a6bc4;
+  --s-blocked: #c0392f;
+  --s-done: #2f7d46;
+  --s-paused: #7b8280;
 
   --radius-sm: 8px;
   --radius: 12px;
   --radius-lg: 18px;
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
-  --shadow: 0 2px 6px rgba(15, 23, 42, 0.05), 0 6px 16px rgba(15, 23, 42, 0.08);
-  --shadow-lift: 0 4px 10px rgba(15, 23, 42, 0.08), 0 14px 30px rgba(15, 23, 42, 0.1);
+  --shadow-sm: 0 1px 2px rgba(20, 22, 20, 0.05), 0 1px 3px rgba(20, 22, 20, 0.05);
+  --shadow: 0 2px 6px rgba(20, 22, 20, 0.06), 0 8px 20px rgba(20, 22, 20, 0.07);
+  --shadow-lift: 0 6px 14px rgba(20, 22, 20, 0.09), 0 18px 40px rgba(20, 22, 20, 0.12);
 
   /* Minimum comfortable hit area. Never make an interactive element smaller. */
   --tap: 44px;
+
+  /*
+   * Spacing, type and control scales.
+   *
+   * There was no scale at all until now: every padding, gap and size in this file was a raw
+   * literal, which is why "make it uniform" was a find-and-replace rather than a token
+   * change. These are adopted per component as each is rebuilt, not in one sweep — a
+   * mechanical pass over 1300 lines is exactly the kind of change that regresses something
+   * nobody notices for a week.
+   *
+   * The linter resolves var() now, so a token that drops under a comfort floor is reported
+   * at every use site rather than passing silently.
+   */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* Chosen to match sizes already shipping, so naming the scale changes no rendered type. */
+  --text-2xs: 12px;
+  --text-xs: 13px;
+  --text-sm: 15px;
+  --text-base: 16px;
+  --text-md: 17px;
+  --text-lg: 20px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+  --text-3xl: 34px;
+
+  --lead-tight: 1.25;
+  --lead-snug: 1.4;
+  --lead-body: 1.6;
+
+  /* --tap is the target; --ctl-sm is the floor both the linter and the e2e audit enforce. */
+  --ctl-sm: 32px;
+  --ctl-md: 38px;
+  --ctl-lg: 44px;
   --rail-w: 264px;
   --pane-x: 34px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f172a;
-    --surface: #1e293b;
-    --surface-2: #172033;
-    --surface-sunk: #0b1220;
+    --bg: #131414;
+    --surface: #1b1d1c;
+    --surface-2: #212423;
+    --surface-sunk: #0f1110;
 
-    --ink: #f1f5f9;
-    --ink-soft: #94a3b8;
-    --ink-faint: #64748b;
+    --ink: #e9eae7;
+    --ink-soft: #9a9f9d;
+    --ink-faint: #6e7370;
 
-    --line: #334155;
-    --line-strong: #475569;
+    --line: #2c2f2e;
+    --line-strong: #3a3e3c;
 
-    --accent: #60a5fa;
-    --accent-ink: #93c5fd;
-    --accent-soft: #1e3a5f;
+    --accent: #5fc0a4;
+    --accent-ink: #8ad6bf;
+    --accent-soft: #1c2e29;
 
-    --s-idea: #fbbf24;
-    --s-active: #60a5fa;
-    --s-blocked: #f87171;
-    --s-done: #4ade80;
-    --s-paused: #94a3b8;
+    --s-idea: #d9a441;
+    --s-active: #6fa8e8;
+    --s-blocked: #e2766a;
+    --s-done: #63b87c;
+    --s-paused: #8d9491;
 
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
@@ -89,8 +133,7 @@
   --color-line: var(--line);
   --color-accent: var(--accent);
 
-  --font-display: var(--font-newsreader);
-  --font-sans: var(--font-inter);
+  /* There is no display face. Hierarchy is size, weight and space. */
   --font-mono: var(--font-jetbrains-mono);
 }
 
@@ -107,7 +150,7 @@ body {
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-inter), system-ui, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 17px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -132,18 +175,19 @@ a:hover {
 /* ---------------------------------------------------------------- type */
 
 .display-lg {
-  font-family: var(--font-newsreader), Georgia, serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 34px;
-  line-height: 42px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
+  line-height: 41px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
 }
 
 .display-sm {
-  font-family: var(--font-newsreader), Georgia, serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 22px;
-  line-height: 30px;
-  font-weight: 400;
+  line-height: 29px;
+  font-weight: 600;
+  letter-spacing: -0.018em;
 }
 
 .label {
@@ -229,8 +273,10 @@ a:hover {
 }
 
 .rail-brand {
-  font-family: var(--font-newsreader), Georgia, serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   padding: 0 20px 16px;
   display: block;
   color: var(--ink);
@@ -458,9 +504,11 @@ input[type="checkbox"] {
 }
 
 .project-name {
-  font-family: var(--font-newsreader), Georgia, serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 21px;
   line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
   color: var(--ink);
 }
 
@@ -541,7 +589,7 @@ input[type="checkbox"] {
 
 .editor-frame .cm-editor {
   background: transparent;
-  font-family: var(--font-inter), system-ui, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 17px;
   line-height: 1.7;
 }
@@ -906,8 +954,10 @@ input[type="checkbox"] {
 }
 
 .phase-name {
-  font-family: var(--font-newsreader), Georgia, serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
   flex: 1;
 }
 
@@ -1079,8 +1129,10 @@ textarea.input {
   }
 
   .topbar-brand {
-    font-family: var(--font-newsreader), Georgia, serif;
+    font-family: var(--font-sans), system-ui, sans-serif;
     font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
     color: var(--ink);
   }
   .topbar-brand:hover {

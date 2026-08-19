@@ -107,6 +107,13 @@ const RULES = [
       "and slips under the e2e hue check, so this hex list is the layer that catches it.",
   },
   {
+    name: "second display face",
+    re: /--font-newsreader|font-?[fF]amily\s*:[^;{}\n]*\b(?:Newsreader|Georgia)\b/g,
+    hint:
+      "One sans, one mono — the display face was dropped in the rebuild. Hierarchy comes " +
+      "from size, weight and space. Use var(--font-sans).",
+  },
+  {
     name: "tailwind cool utility",
     re: /\b(?:bg|text|border|ring|from|to|via)-(?:indigo|violet|purple|fuchsia|slate|zinc|gray)-\d{2,3}\b/g,
     hint: "Use the design tokens: --ink, --ink-soft, --surface, --line, --accent, or a --s-* status hue.",

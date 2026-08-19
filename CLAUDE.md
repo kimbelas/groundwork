@@ -58,8 +58,13 @@ happened.
 - **No emoji in UI chrome.** Use a status chip or an inline SVG.
 - **Words on screen, codes in files.** Display "High" and "80% sure" via `lib/labels.ts`;
   the vault keeps `P1` and `0.8` because a person hand-edits those files.
-- **Serif display face stays.** Newsreader on titles is what stops this reading as a
-  generic dashboard.
+- **One sans, one mono.** There is no display face. A serif ran on titles for two
+  revisions on the argument that it stopped the app reading as a generic dashboard; it was
+  dropped because the tool this is modelled on uses a single family, and hierarchy comes
+  from size, weight and space instead. Both `scripts/blueprint-lint.js` and
+  `tests-e2e/design-system.spec.ts` refuse its return, so this is enforced rather than
+  remembered. Instrument Sans, not Inter — Inter is what every generated interface reaches
+  for, and looking generic is the complaint this rebuild answers.
 - **Every screen works at 390px.** Columns stack, the rail is a drawer, the dashboard
   table becomes cards. Never disable pinch-zoom.
 

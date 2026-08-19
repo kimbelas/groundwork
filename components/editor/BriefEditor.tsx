@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo } from "react";
 
 import { useProjectDoc } from "@/components/project/ProjectDoc";
 
-import { blueprintHighlight } from "./blueprintHighlight";
+import { markdownHighlight } from "./markdownHighlight";
 import { SaveState } from "./SaveState";
 import { useAutosave } from "./useAutosave";
 
@@ -40,7 +40,7 @@ export function BriefEditor({ initialBody }: { initialBody: string }) {
   const extensions = useMemo(
     () => [
       markdown(),
-      blueprintHighlight,
+      markdownHighlight,
       EditorView.lineWrapping,
       EditorView.contentAttributes.of({ "aria-label": "Brief" }),
     ],
