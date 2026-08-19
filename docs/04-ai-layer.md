@@ -4,13 +4,13 @@ The whole design of this layer follows from one decision: **the AI is a proposer
 
 ## Engine
 
-AI work runs through the Claude Code CLI already installed on this machine:
+AI work runs through the Claude Code CLI already installed on the machine. The location is
+not hard-coded to anyone: on Windows it is derived from `APPDATA` (npm puts its global
+shims under `%APPDATA%/npm`), elsewhere the binary is spawned from `PATH`, and
+`GROUNDWORK_CLAUDE_CMD` overrides both.
 
-```
-C:\Users\belas\AppData\Roaming\npm\claude.cmd
-```
-
-That path is exactly what `claude-coach/lib/coach.ts` uses. Reasons this beats the API for v1:
+Deriving beats a bare `PATH` lookup here, because npm global is often missing from the
+environment a dev server inherits. Reasons the CLI beats the API for v1:
 
 - No API key to manage, no per-token cost — it rides the existing subscription.
 - It can read the vault (and, for export, the real project folder) with its own tools.

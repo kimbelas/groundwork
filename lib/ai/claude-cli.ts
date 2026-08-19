@@ -9,12 +9,33 @@ import type { AiEvent, AiJob } from "./types";
 /**
  * Drives the Claude Code CLI already installed on this machine.
  *
- * Chosen over the API for v1 because it needs no key and no per-token spend, and
- * because it can read the vault with its own tools. The invocation mirrors the working
- * one in `claude-coach/app/api/run/route.ts`.
+ * Chosen over the API for v1 because it needs no key and no per-token spend, and because
+ * it can read the vault with its own tools.
  */
-const CLAUDE_CMD =
-  process.env.GROUNDWORK_CLAUDE_CMD ?? "C:\\Users\\belas\\AppData\\Roaming\\npm\\claude.cmd";
+const IS_WINDOWS = process.platform === "win32";
+
+/**
+ * Where the CLI lives, without naming anyone's home directory.
+ *
+ * This was a literal `C:\Users\<name>\AppData\Roaming\npm\claude.cmd`, which worked on
+ * exactly one machine. `APPDATA` gives the same location for any Windows user, and npm's
+ * global bin is where `npm i -g` puts the shim.
+ *
+ * Deriving beats resolving from `PATH`: npm's global directory is frequently absent from
+ * the environment a dev server inherits — verified on this machine, where `cmd /c
+ * claude.cmd` cannot find it but the derived absolute path runs fine. A bare name would
+ * have looked tidier and broken the AI layer silently.
+ *
+ * `GROUNDWORK_CLAUDE_CMD` overrides all of it, which is the escape hatch for a CLI
+ * installed somewhere else entirely.
+ */
+function defaultClaudeCmd(): string {
+  if (!IS_WINDOWS) return "claude";
+  const appData = process.env.APPDATA;
+  return appData ? path.join(appData, "npm", "claude.cmd") : "claude.cmd";
+}
+
+const CLAUDE_CMD = process.env.GROUNDWORK_CLAUDE_CMD ?? defaultClaudeCmd();
 
 /**
  * Permissions for the spawned run.
@@ -145,27 +166,29 @@ export const claudeCliEngine: AiEngine = {
     const instruction = instructionFor(job, outPath);
 
     return new Promise<void>((resolve, reject) => {
-      // `cmd /c` is what executes a .cmd on Windows without enabling a shell, so no
-      // user-supplied text is ever interpolated into a command line.
-      const child = spawn(
-        "cmd",
-        [
-          "/c",
-          CLAUDE_CMD,
-          "-p",
-          instruction,
-          "--output-format",
-          "stream-json",
-          "--verbose",
-          "--permission-mode",
-          PERMISSION_MODE,
-          "--allowedTools",
-          ALLOWED_TOOLS,
-          "--settings",
-          RUN_SETTINGS,
-        ],
-        { cwd, windowsHide: true },
-      );
+      const args = [
+        "-p",
+        instruction,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--permission-mode",
+        PERMISSION_MODE,
+        "--allowedTools",
+        ALLOWED_TOOLS,
+        "--settings",
+        RUN_SETTINGS,
+      ];
+
+      /**
+       * Windows needs `cmd /c` to execute a `.cmd`; Node refuses to spawn one directly.
+       * That is not a shell — arguments stay a real argv, so no user-supplied text is
+       * ever interpolated into a command line. Everywhere else the binary is spawned
+       * directly, because wrapping it in `cmd` there would simply fail.
+       */
+      const child = IS_WINDOWS
+        ? spawn("cmd", ["/c", CLAUDE_CMD, ...args], { cwd, windowsHide: true })
+        : spawn(CLAUDE_CMD, args, { cwd });
 
       current = { runId, child };
 

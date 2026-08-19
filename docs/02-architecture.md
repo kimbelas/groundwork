@@ -2,11 +2,11 @@
 
 ## Stack
 
-Deliberately the same shape as `claude-coach` (`C:\Users\belas\Documents\development\claude-coach`), which already runs as a local-only Next.js app that reads and writes markdown on disk and drives the Claude Code CLI over SSE. Reusing that shape means fewer unknowns and a codebase that feels familiar.
+A local-only Next.js app that reads and writes markdown on disk and drives the Claude Code CLI over SSE. The shape was borrowed from an earlier local tool of the same kind, which is why several choices below are stated as familiarity rather than analysis. Groundwork is standalone: it shares no code, config or plugin with anything else on the machine.
 
 | Layer | Choice | Why |
 |---|---|---|
-| Framework | Next.js 16, App Router | Same as claude-coach; route handlers give us a server with zero extra process |
+| Framework | Next.js 16, App Router | Route handlers give us a server with zero extra process |
 | UI | React 19 + TypeScript | Same |
 | Styling | Tailwind 4 with CSS custom properties | Same; tokens live in `globals.css` under `@theme inline` |
 | Package manager | pnpm | Already installed (10.29.3) |
