@@ -107,7 +107,7 @@ export function ColumnManager({
     }
 
     try {
-      await send({ kind: "rename-column", from, to });
+      await send({ kind: "rename-column", from, to, expectedMtimeMs: mtimeMs });
       setDraft((cols) => cols.map((c) => (c === from ? to : c)));
       setRenaming(null);
     } catch {

@@ -261,3 +261,46 @@ describe("renameColumn", () => {
     });
   });
 });
+
+/**
+ * The precondition on a rename, which did not exist.
+ *
+ * `renameColumn` decides the new column list from a read of `project.md` taken at the top
+ * of the call, then writes it back. Without a precondition, a rename silently overwrote any
+ * column change made since the caller last looked — the last-writer-wins clobber that every
+ * other mutating path in this app already refuses.
+ *
+ * The old comment argued a rename "carries no mtime precondition of its own" because it
+ * rewrites many card files. That conflated two writes: the cards are each re-read
+ * immediately before being rewritten and genuinely need no check, but project.md does.
+ */
+describe("renameColumn preconditions", () => {
+  it("renames when the caller's view of project.md is current", async () => {
+    const before = await vault.getProject("board-test");
+    const moved = await vault.renameColumn("board-test", "Intake", "Triage", before.mtimeMs);
+
+    expect(moved).toBeGreaterThan(0);
+    const after = await vault.getProject("board-test");
+    expect(after.meta.columns).toContain("Triage");
+    expect(after.meta.columns).not.toContain("Intake");
+  });
+
+  it("refuses a rename built on a stale read", async () => {
+    const stale = (await vault.getProject("board-test")).mtimeMs;
+
+    // Somebody else changes the columns in between — another tab, or Obsidian.
+    const current = await vault.getProject("board-test");
+    await vault.setColumns("board-test", [...current.meta.columns, "Parked"], current.mtimeMs);
+
+    // Verified non-vacuous: with the precondition removed this resolves instead of
+    // rejecting, and the case fails.
+    await expect(
+      vault.renameColumn("board-test", "Intake", "Triage", stale),
+    ).rejects.toMatchObject({ code: "conflict" });
+
+    // And nothing was half-applied: the column list is what the other writer left.
+    const after = await vault.getProject("board-test");
+    expect(after.meta.columns).toContain("Intake");
+    expect(after.meta.columns).toContain("Parked");
+  });
+});

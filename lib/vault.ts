@@ -929,7 +929,27 @@ export async function setColumns(
  * Cards carry the column name, so a rename that touched only `project.md` would orphan
  * every card in that column.
  */
-export async function renameColumn(slug: string, from: string, to: string): Promise<number> {
+/**
+ * Rename a column and rewrite every card that referenced it.
+ *
+ * `expectedMtimeMs` guards project.md, which is what this function decides the new column
+ * list from. It used to carry no precondition at all, on the reasoning that a rename
+ * rewrites many card files and so cannot be pinned to one mtime. That conflated two
+ * different writes: the CARDS are each re-read immediately before being rewritten, so they
+ * genuinely need no precondition - but project.md is written from the list read at the top
+ * of this function, and without a check a rename silently overwrote any column change made
+ * since the caller last looked.
+ *
+ * The cards are still best-effort by design. Failing halfway would leave the column list
+ * renamed and some cards pointing at a name that no longer exists, so the precondition
+ * guards the decision, not the sweep.
+ */
+export async function renameColumn(
+  slug: string,
+  from: string,
+  to: string,
+  expectedMtimeMs?: number,
+): Promise<number> {
   assertSlug(slug);
   const root = vaultRoot();
 
@@ -941,9 +961,11 @@ export async function renameColumn(slug: string, from: string, to: string): Prom
     throw new VaultError("already_exists", `A column called "${to}" already exists`);
   }
 
-  await patchProjectMeta(slug, {
-    columns: project.meta.columns.map((c) => (c === from ? to : c)),
-  });
+  await patchProjectMeta(
+    slug,
+    { columns: project.meta.columns.map((c) => (c === from ? to : c)) },
+    expectedMtimeMs,
+  );
 
   let moved = 0;
   for (const card of project.cards.filter((c) => c.column === from)) {
