@@ -4,45 +4,78 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { Chip } from "@/components/ui/Chip";
+import { Notice } from "@/components/ui/Notice";
 import { healthTone, stageTone } from "@/lib/format";
 import { archetypeLabel, healthLabel, stageLabel } from "@/lib/labels";
+import { resolveOptimistic, type Optimistic } from "@/lib/optimistic";
 import { ARCHETYPES, HEALTHS, STAGES } from "@/lib/schema";
 import type { ProjectMeta } from "@/lib/schema";
 
 import { useProjectDoc } from "./ProjectDoc";
+
+/** The three fields this bar owns. Everything else in the frontmatter is written elsewhere. */
+type Editable = Pick<ProjectMeta, "stage" | "health" | "archetype">;
+
+/**
+ * An optimistic value per field, each remembering what it was written over.
+ *
+ * The expiry rule lives in `lib/optimistic.ts` with its own tests, because the subtle part
+ * is not "show the local value" — it is knowing when to stop.
+ */
+type Pending = { [K in keyof Editable]?: Optimistic<Editable[K]> };
 
 /**
  * Stage, health and archetype. Writes frontmatter only, and never the body.
  *
  * Stage and health are human judgments — nothing in the AI layer may set them, which is
  * why they are edited here and nowhere else.
+ *
+ * This used to copy `meta` into `useState` at mount. `useState` ignores a changed initial
+ * value, so the bar froze at first render: a `router.refresh()` that brought a new stage —
+ * from an Obsidian edit, another tab, or an applied proposal — reached the page title, the
+ * rail and the dashboard, and never reached these three controls. The screen showed two
+ * different answers for the same field, and the next edit from here wrote over the newer
+ * one with a stale precondition, which 409s and latches the whole document read-only.
+ *
+ * So the server is the source of truth and this holds only unconfirmed overrides, which is
+ * the pattern `components/board/Board.tsx` already uses and `CLAUDE.md` requires.
  */
 export function MetaBar({ meta }: { meta: ProjectMeta }) {
   const doc = useProjectDoc();
   const router = useRouter();
   const [, startTransition] = useTransition();
 
-  const [local, setLocal] = useState({
-    stage: meta.stage,
-    health: meta.health,
-    archetype: meta.archetype,
-  });
+  const [pending, setPending] = useState<Pending>({});
   const [error, setError] = useState<string | null>(null);
 
-  async function apply<K extends keyof typeof local>(key: K, next: (typeof local)[K]) {
-    const previous = local[key];
-    setLocal((s) => ({ ...s, [key]: next }));
+  /** The value to render. The expiry rule is in lib/optimistic.ts, tested separately. */
+  function shown<K extends keyof Editable>(key: K): Editable[K] {
+    return resolveOptimistic(meta[key], pending[key]);
+  }
+
+  async function apply<K extends keyof Editable>(key: K, next: Editable[K]) {
+    setPending((p) => ({ ...p, [key]: { value: next, base: meta[key] } }));
     setError(null);
 
     try {
       await doc.writeMeta({ [key]: next });
-      // Refresh so the dashboard, rail and any derived counts pick the change up.
+      // Refresh so the dashboard, rail and any derived counts pick the change up. The
+      // override keeps the control steady until that lands, then expires on its own.
       startTransition(() => router.refresh());
     } catch (e) {
-      setLocal((s) => ({ ...s, [key]: previous }));
+      // Drop the override rather than reverting to a remembered value: whatever the server
+      // holds now is the truth, and it may not be what was there when this started.
+      setPending((p) => {
+        const { [key]: _dropped, ...rest } = p;
+        return rest as Pending;
+      });
       setError((e as Error).message);
     }
   }
+
+  const stage = shown("stage");
+  const health = shown("health");
+  const archetype = shown("archetype");
 
   return (
     <div className="metabar" data-testid="meta-bar">
@@ -50,7 +83,7 @@ export function MetaBar({ meta }: { meta: ProjectMeta }) {
         <span className="label">Stage</span>
         <select
           className="select"
-          value={local.stage}
+          value={stage}
           disabled={doc.conflicted}
           onChange={(e) => void apply("stage", e.target.value as ProjectMeta["stage"])}
           aria-label="Stage"
@@ -62,14 +95,14 @@ export function MetaBar({ meta }: { meta: ProjectMeta }) {
             </option>
           ))}
         </select>
-        <Chip tone={stageTone(local.stage)}>{stageLabel(local.stage)}</Chip>
+        <Chip tone={stageTone(stage)}>{stageLabel(stage)}</Chip>
       </label>
 
       <label className="metabar-field">
         <span className="label">Health</span>
         <select
           className="select"
-          value={local.health}
+          value={health}
           disabled={doc.conflicted}
           onChange={(e) => void apply("health", e.target.value as ProjectMeta["health"])}
           aria-label="Health"
@@ -80,14 +113,14 @@ export function MetaBar({ meta }: { meta: ProjectMeta }) {
             </option>
           ))}
         </select>
-        <Chip tone={healthTone(local.health)}>{healthLabel(local.health)}</Chip>
+        <Chip tone={healthTone(health)}>{healthLabel(health)}</Chip>
       </label>
 
       <label className="metabar-field">
         <span className="label">Archetype</span>
         <select
           className="select"
-          value={local.archetype}
+          value={archetype}
           disabled={doc.conflicted}
           onChange={(e) => void apply("archetype", e.target.value as ProjectMeta["archetype"])}
           aria-label="Archetype"
@@ -100,11 +133,7 @@ export function MetaBar({ meta }: { meta: ProjectMeta }) {
         </select>
       </label>
 
-      {error && (
-        <span className="mono" style={{ color: "var(--s-blocked)" }} role="alert">
-          {error}
-        </span>
-      )}
+      {error && <Notice className="metabar-error">{error}</Notice>}
     </div>
   );
 }

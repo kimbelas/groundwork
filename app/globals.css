@@ -663,6 +663,11 @@ input[type="checkbox"] {
   margin-bottom: 26px;
 }
 
+/* An error takes its own row; the bar is a wrapping flex of fields. */
+.metabar-error {
+  flex-basis: 100%;
+}
+
 .metabar-field {
   display: inline-flex;
   align-items: center;
