@@ -10,8 +10,9 @@ import { expect, test } from "@playwright/test";
  *   1. **Comfort.** Type and hit areas must not shrink back. Small, cramped UI is the
  *      complaint the redesign exists to fix, and it regresses one "just this once" at a
  *      time.
- *   2. **Identity.** No indigo, violet or purple. The warm palette is what stops the app
- *      reading as generic.
+ *   2. **Identity.** No indigo, violet or purple — the generic-AI tell. This check and the
+ *      hex list in `scripts/blueprint-lint.js` are both needed: the hue window here misses
+ *      Tailwind's `indigo-500`, which sits at hue 239, just outside it.
  *
  * Plus the thing no unit test can cover: that it actually works on a phone.
  */
@@ -226,7 +227,9 @@ test.describe("typography", () => {
 });
 
 test.describe("dark mode", () => {
-  test("keeps a warm background and no purple", async ({ browser }) => {
+  // Named for what it asserts: a real painted ground, and no purple. It never checked
+  // warmth, despite saying so for two design revisions.
+  test("paints a real background and no purple", async ({ browser }) => {
     const context = await browser.newContext({ colorScheme: "dark" });
     const page = await context.newPage();
     await page.goto("/");

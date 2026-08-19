@@ -29,18 +29,32 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
 
 ### Design rules — do not regress these
 
-The visual language is **Warm & Soft** (see `docs/05-design-system.md`). It replaced an
+The visual language is **Clean & Bright** (see `docs/05-design-system.md`). It replaced an
 earlier dense design that was rejected for being too small and too cramped, so the rules
-now guard comfort and identity rather than austerity.
+guard comfort rather than austerity.
 
-- **Never type below 12px**; body copy stays 15px or larger. Small type is the specific
-  complaint this design fixed.
-- **Never a control under 44px** of hit area (`var(--tap)`). Inline text links are
-  exempt: they are sized by their text and get their hit area from the row around them.
+That document described a *different* palette for a full revision after the CSS had moved
+on, and nothing caught it. **A change to the design changes its guardrail — the lint rule,
+the e2e assertion and the doc — in the same commit.** Anything less is how the last drift
+happened.
+
+- **Comfortable sizing is not up for negotiation.** No type below 12px, body copy 15px or
+  larger, controls at the floor below. A redesign may change the shape; it does not get to
+  buy space back by shrinking the scale. Small type is the specific complaint that got the
+  previous design thrown out.
+- **Controls target 44px** of hit area (`var(--tap)`); **the enforced floor is 32px
+  measured**, which is what both `scripts/blueprint-lint.js` and `design-system.spec.ts`
+  check. The gap between the two numbers is headroom on purpose. Inline text links are
+  exempt: they are sized by their text and take their hit area from the row around them.
+- **Token sizes stay in `px`.** The linter resolves a `rem` against a 16px root so a stray
+  one cannot slip under a floor, but it cannot resolve a root size declared in another
+  file. Do not author the scale in `rem` and rely on the check.
 - **No hard-coded colours outside the token block** in `globals.css`. Use `--ink`,
   `--surface`, `--line`, `--accent`, or a `--s-*` status hue.
-- **No indigo, violet, purple, or Tailwind cool greys** (`slate`, `zinc`, `gray`). The
-  warm sand-and-teal palette is the identity.
+- **No indigo, violet or purple** — the generic-AI tell, and the one hue family both
+  enforcement layers hunt for. **No Tailwind cool-grey utility classes** (`slate`, `zinc`,
+  `gray`); that rule bans the class names, and the token block being slate-derived by hex
+  is legitimate, since the tokens *are* the palette.
 - **No emoji in UI chrome.** Use a status chip or an inline SVG.
 - **Words on screen, codes in files.** Display "High" and "80% sure" via `lib/labels.ts`;
   the vault keeps `P1` and `0.8` because a person hand-edits those files.
