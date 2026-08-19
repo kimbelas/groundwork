@@ -23,11 +23,14 @@ export interface InputProps
 export function Input({ label, invalid, className, ...rest }: InputProps) {
   return (
     <input
+      // Spread first, so nothing in `rest` can override the name or the validity wiring
+      // below. Omitting `aria-label` from the props type does not actually stop a caller
+      // passing it — TypeScript does not excess-property-check hyphenated JSX attributes.
+      {...rest}
       className={cx("input", className)}
       aria-label={label}
       aria-invalid={invalid ? true : undefined}
       aria-describedby={invalid || undefined}
-      {...rest}
     />
   );
 }

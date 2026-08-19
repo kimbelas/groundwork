@@ -9,6 +9,9 @@ import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { Notice } from "@/components/ui/Notice";
 
+/** The clash message lives above the list; the rename field points at it by id. */
+const ERROR_ID = "column-manager-error";
+
 /**
  * Add, rename, reorder and remove board columns.
  *
@@ -132,7 +135,11 @@ export function ColumnManager({
     <section className="raised column-manager" data-testid="column-manager">
       <p className="label">Columns</p>
 
-      {error && <Notice data-testid="columns-error">{error}</Notice>}
+      {error && (
+        <Notice id={ERROR_ID} data-testid="columns-error">
+          {error}
+        </Notice>
+      )}
 
       <ul className="column-list">
         {draft.map((name, i) => (
@@ -151,6 +158,7 @@ export function ColumnManager({
                   value={renaming.to}
                   autoFocus
                   disabled={busy}
+                  invalid={error ? ERROR_ID : false}
                   onChange={(e) => setRenaming({ from: name, to: e.target.value })}
                   onKeyDown={(e) => {
                     if (e.key === "Escape") setRenaming(null);

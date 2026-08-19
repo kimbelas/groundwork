@@ -23,11 +23,16 @@ export interface IconButtonProps
 export function IconButton({ label, className, type, children, ...rest }: IconButtonProps) {
   return (
     <button
+      // `rest` is spread FIRST, so nothing in it can win over the name below. The
+      // `Omit<..., "aria-label">` in the props type looks like it prevents that, but
+      // TypeScript does not excess-property-check hyphenated JSX attributes — a caller
+      // writing `aria-label="…"` compiles fine, and spread last it would silently replace
+      // the required label with an unchecked one. Order is the actual guarantee here.
+      {...rest}
       type={type ?? "button"}
       className={cx("icon-button", className)}
       aria-label={label}
       title={label}
-      {...rest}
     >
       {/* The glyph is decoration; the name above is what a screen reader announces. */}
       <span aria-hidden="true" className="icon-button-glyph">

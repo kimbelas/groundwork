@@ -264,6 +264,15 @@ test.describe("typography", () => {
     await page.getByTestId("manage-columns").click();
     await expect(page.getByTestId("column-manager")).toBeVisible();
 
+    // The rename row sits behind a *second* disclosure, so its field and buttons would
+    // still be unmeasured with only the panel open — the same blind spot one level down.
+    await page.getByRole("button", { name: "rename", exact: true }).first().click();
+    // Scoped to the rename field by testid: the panel also carries a "New column name"
+    // input, so an unqualified textbox lookup matches two and fails strict mode.
+    await expect(
+      page.getByTestId("column-manager").locator("[data-testid^='rename-input-']"),
+    ).toBeVisible();
+
     expect(await collectViolations(page, "purple")).toEqual([]);
     expect(await collectViolations(page, "small-text")).toEqual([]);
     expect(await collectViolations(page, "small-tap")).toEqual([]);

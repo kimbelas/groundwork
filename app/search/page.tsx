@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { searchVault } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
@@ -33,20 +35,25 @@ export default async function SearchPage({
         Search
       </h1>
 
+      {/*
+        This page is a server component, and the primitives below are used from it without
+        pulling anything into the client bundle — which is the whole reason they carry no
+        "use client" directive. A hook-free primitive stays usable on both sides; the
+        directive is for the ones that will wrap a third-party library.
+      */}
       <form method="get" action="/search" className="row" style={{ gap: 12, marginBottom: 28 }}>
-        <input
-          className="input"
+        <Input
+          label="Search the vault"
           type="search"
           name="q"
           defaultValue={query}
           placeholder="Find anything in the vault"
-          aria-label="Search the vault"
           style={{ maxWidth: 460 }}
           autoFocus
         />
-        <button type="submit" className="button button-primary">
+        <Button type="submit" variant="primary">
           Search
-        </button>
+        </Button>
       </form>
 
       {query.length > 0 && query.length < 2 && (

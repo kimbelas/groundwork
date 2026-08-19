@@ -1174,10 +1174,6 @@ textarea.input {
   padding: 14px 16px;
 }
 
-/* Something worth knowing rather than something that went wrong. */
-.notice-info {
-  border-left-color: var(--accent);
-}
 
 /* Destructive actions. A class rather than an inline style, so the token stays in one file. */
 .is-danger {
