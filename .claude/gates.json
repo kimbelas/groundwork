@@ -1,0 +1,39 @@
+{
+  "denyPaths": [".next/**", "node_modules/**", "pnpm-lock.yaml", "test-results/**", "playwright-report/**"],
+  "askPaths": ["vault/**"],
+
+  "lint": [
+    {
+      "match": "\\.(tsx|jsx|css)$",
+      "exclude": "node_modules/",
+      "command": "node scripts/blueprint-lint.js"
+    },
+    {
+      "match": "\\.(ts|tsx|js|jsx|mjs)$",
+      "exclude": "node_modules/",
+      "command": "node scripts/fs-boundary.js"
+    }
+  ],
+
+  "stopChecks": [
+    {
+      "match": "^(lib|app|components|tests)[/\\\\]",
+      "command": "pnpm exec vitest run",
+      "label": "unit tests",
+      "timeoutMs": 180000
+    },
+    {
+      "match": "\\.(ts|tsx)$",
+      "command": "pnpm exec tsc --noEmit",
+      "label": "typecheck",
+      "timeoutMs": 180000
+    }
+  ],
+
+  "verify": [
+    { "command": "pnpm exec tsc --noEmit", "label": "typecheck" },
+    { "command": "pnpm exec eslint .", "label": "lint" },
+    { "command": "pnpm exec vitest run", "label": "unit tests" },
+    { "command": "pnpm exec playwright test", "label": "e2e" }
+  ]
+}

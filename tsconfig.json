@@ -1,0 +1,59 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
+  },
+  "include": [
+    "types/**/*.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next-e2e/types/**/*.ts",
+    ".next-e2e/dev/types/**/*.ts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "//exclude": [
+    "Next's generated type trees are excluded on purpose. It writes one per distDir and",
+    "appends an import for the most recent one into next-env.d.ts, which made typecheck",
+    "depend on whether dev or e2e ran last. See types/next-globals.d.ts.",
+    "If Next re-adds next-env.d.ts or a .next path to `include` on boot, these entries",
+    "filter it back out."
+  ],
+  "exclude": [
+    "node_modules",
+    "tests-e2e",
+    "next-env.d.ts",
+    ".next",
+    ".next/**",
+    ".next-e2e",
+    ".next-e2e/**"
+  ]
+}

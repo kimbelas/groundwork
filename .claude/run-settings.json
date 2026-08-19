@@ -1,0 +1,49 @@
+{
+  "$comment": [
+    "Permissions for the headless AI runs this app spawns — NOT for interactive Claude",
+    "Code sessions in this repo. Passed with --settings; see lib/ai/claude-cli.ts.",
+    "",
+    "VERIFIED BEHAVIOUR on CLI 2.1.235, tested rather than assumed:",
+    "  * `deny` rules here ARE enforced. A run told to write vault/ is blocked; the same",
+    "    run without these rules writes it. That test is what makes this file meaningful.",
+    "  * `allow` rules here are NOT honoured. A run with only an allow entry for the run",
+    "    directory was still denied, so path-scoped ALLOW is not available.",
+    "  * `--allowedTools` accepts bare tool names only. `Write(.groundwork/runs/**)` is",
+    "    not parsed as a scoped rule there either.",
+    "",
+    "Consequence: Write is granted broadly by the flag, and scoping is achieved by denying",
+    "everything the run has no business touching. Deny beats allow, so this is a real",
+    "boundary — but it is a denylist, which means a NEW top-level directory holding source",
+    "must be added here. Re-check this file if the CLI major version changes."
+  ],
+  "permissions": {
+    "deny": [
+      "Write(vault/**)",
+      "Edit(vault/**)",
+      "Write(lib/**)",
+      "Edit(lib/**)",
+      "Write(app/**)",
+      "Edit(app/**)",
+      "Write(components/**)",
+      "Edit(components/**)",
+      "Write(tests/**)",
+      "Edit(tests/**)",
+      "Write(tests-e2e/**)",
+      "Edit(tests-e2e/**)",
+      "Write(scripts/**)",
+      "Edit(scripts/**)",
+      "Write(prompts/**)",
+      "Edit(prompts/**)",
+      "Write(docs/**)",
+      "Edit(docs/**)",
+      "Write(.claude/**)",
+      "Edit(.claude/**)",
+      "Write(fixtures/**)",
+      "Edit(fixtures/**)",
+      "Read(.env*)",
+      "Bash",
+      "WebFetch",
+      "WebSearch"
+    ]
+  }
+}

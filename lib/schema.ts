@@ -1,0 +1,111 @@
+import { z } from "zod";
+
+/**
+ * Frontmatter schemas.
+ *
+ * Everything here is permissive on input and strict on output: defaults fill gaps so a
+ * hand-written file with three keys still loads, while the parsed value is fully typed.
+ * The vault is meant to be editable by hand, so a missing `size:` must not 500 the app.
+ */
+
+/** YAML parses bare `2026-08-18` into a Date; normalise both spellings to `YYYY-MM-DD`. */
+const IsoDate = z
+  .union([z.string(), z.date()])
+  .transform((v) => (typeof v === "string" ? v.slice(0, 10) : v.toISOString().slice(0, 10)));
+
+export const STAGES = ["idea", "shaping", "building", "paused", "shipped", "archived"] as const;
+export const HEALTHS = ["green", "amber", "red"] as const;
+export const ARCHETYPES = ["saas-mvp", "internal-tool", "client", "research-spike"] as const;
+export const PRIORITIES = ["P1", "P2", "P3"] as const;
+export const SIZES = ["S", "M", "L"] as const;
+export const LIKELIHOODS = ["low", "med", "high"] as const;
+
+export const DEFAULT_COLUMNS = ["Intake", "Shaping", "Build", "Review", "Done"] as const;
+
+export const StageSchema = z.enum(STAGES);
+export const HealthSchema = z.enum(HEALTHS);
+export const ArchetypeSchema = z.enum(ARCHETYPES);
+export const PrioritySchema = z.enum(PRIORITIES);
+export const SizeSchema = z.enum(SIZES);
+export const LikelihoodSchema = z.enum(LIKELIHOODS);
+
+export const ProjectMetaSchema = z.object({
+  name: z.string().min(1),
+  slug: z.string().min(1),
+  stage: StageSchema.default("idea"),
+  health: HealthSchema.default("green"),
+  archetype: ArchetypeSchema.default("internal-tool"),
+  columns: z.array(z.string().min(1)).min(1).default([...DEFAULT_COLUMNS]),
+  created: IsoDate.optional(),
+  updated: IsoDate.optional(),
+});
+export type ProjectMeta = z.output<typeof ProjectMetaSchema>;
+
+export const CardMetaSchema = z.object({
+  id: z.number().int().positive(),
+  title: z.string().min(1),
+  column: z.string().min(1),
+  phase: z.number().int().positive().nullable().default(null),
+  priority: PrioritySchema.default("P2"),
+  size: SizeSchema.default("M"),
+  confidence: z.number().min(0).max(1).default(0.5),
+  blocked: z.boolean().default(false),
+  order: z.number().default(100),
+  created: IsoDate.optional(),
+  updated: IsoDate.optional(),
+});
+export type CardMeta = z.output<typeof CardMetaSchema>;
+
+export const PhaseSchema = z.object({
+  n: z.number().int().positive(),
+  name: z.string().min(1),
+  goal: z.string().default(""),
+});
+export type Phase = z.output<typeof PhaseSchema>;
+
+export const RoadmapSchema = z.object({
+  phases: z.array(PhaseSchema).default([]),
+});
+
+export const QuestionSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1),
+  status: z.enum(["open", "answered"]).default("open"),
+  answer: z.string().nullable().default(null),
+  fromRun: z.string().nullable().default(null),
+  created: IsoDate.optional(),
+});
+export type Question = z.output<typeof QuestionSchema>;
+
+export const QuestionsSchema = z.object({
+  questions: z.array(QuestionSchema).default([]),
+});
+
+export const RiskSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1),
+  likelihood: LikelihoodSchema.default("med"),
+  impact: LikelihoodSchema.default("med"),
+  mitigation: z.string().default(""),
+});
+export type Risk = z.output<typeof RiskSchema>;
+
+export const AssumptionSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1),
+  validated: z.boolean().default(false),
+});
+export type Assumption = z.output<typeof AssumptionSchema>;
+
+export const RisksSchema = z.object({
+  risks: z.array(RiskSchema).default([]),
+  assumptions: z.array(AssumptionSchema).default([]),
+});
+
+/** Compact one-line reason a document failed to parse, for showing in the UI. */
+export function describeIssues(error: z.ZodError): string {
+  return error.issues
+    .slice(0, 4)
+    .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+    .join("; ");
+}

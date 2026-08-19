@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(./**)",
+      "Edit(./**)",
+      "Write(./**)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(pnpm exec vitest:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "deny": ["Read(.env*)"]
+  },
+  "$comment": [
+    "The block below is the headless profile the Phase 4 AI layer spawns the Claude Code",
+    "CLI under. In -p mode nothing is approved interactively, so permissions ARE the",
+    "sandbox. Write is granted only under .groundwork/runs/ and pointedly NOT under",
+    "vault/ — that turns 'the AI never writes the vault' from a sentence in the prompt",
+    "into a rule the harness enforces. See docs/04-ai-layer.md.",
+    "Phase 4 will move these into the spawn's own settings so they cannot widen the",
+    "interactive session's permissions."
+  ],
+  "headlessProfile": {
+    "allow": ["Read(./**)", "Write(.groundwork/runs/**)"],
+    "deny": ["Write(vault/**)", "Edit(vault/**)", "Read(.env*)"]
+  }
+}

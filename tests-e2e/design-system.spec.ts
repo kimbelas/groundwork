@@ -1,0 +1,336 @@
+import { expect, test } from "@playwright/test";
+
+/**
+ * The design system, asserted against what the browser actually computed.
+ *
+ * These checks changed direction when the design did. The old suite enforced austerity
+ * — no shadows, 2px radii — which is now the opposite of the goal. What is guarded now
+ * is the two things that make or break this design:
+ *
+ *   1. **Comfort.** Type and hit areas must not shrink back. Small, cramped UI is the
+ *      complaint the redesign exists to fix, and it regresses one "just this once" at a
+ *      time.
+ *   2. **Identity.** No indigo, violet or purple. The warm palette is what stops the app
+ *      reading as generic.
+ *
+ * Plus the thing no unit test can cover: that it actually works on a phone.
+ */
+
+/** Next's dev overlay is not our markup and must not fail our design rules. */
+const SKIP_SELECTOR = "nextjs-portal, [data-nextjs-toast], [data-nextjs-dialog-overlay]";
+
+interface Violation {
+  selector: string;
+  detail: string;
+}
+
+async function collectViolations(
+  page: import("@playwright/test").Page,
+  check: "purple" | "small-text" | "small-tap" | "overflow",
+): Promise<Violation[]> {
+  return page.evaluate(
+    ([checkName, skipSelector]) => {
+      const out: { selector: string; detail: string }[] = [];
+
+      const describe = (el: Element): string => {
+        const cls =
+          typeof el.className === "string" && el.className
+            ? `.${el.className.trim().split(/\s+/).slice(0, 3).join(".")}`
+            : "";
+        return `${el.tagName.toLowerCase()}${cls}`;
+      };
+
+      const toHsl = (rgb: string): { h: number; s: number; l: number } | null => {
+        const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(rgb);
+        if (!m?.[1] || !m[2] || !m[3]) return null;
+        const r = Number(m[1]) / 255;
+        const g = Number(m[2]) / 255;
+        const b = Number(m[3]) / 255;
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const l = (max + min) / 2;
+        const d = max - min;
+        if (d === 0) return { h: 0, s: 0, l };
+        const s = d / (1 - Math.abs(2 * l - 1));
+        let h: number;
+        if (max === r) h = 60 * (((g - b) / d) % 6);
+        else if (max === g) h = 60 * ((b - r) / d + 2);
+        else h = 60 * ((r - g) / d + 4);
+        if (h < 0) h += 360;
+        return { h, s, l };
+      };
+
+      const visible = (el: Element): boolean => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return false;
+        const cs = getComputedStyle(el);
+        return cs.display !== "none" && cs.visibility !== "hidden";
+      };
+
+      const elements = Array.from(document.querySelectorAll("body *")).filter(
+        (el) => !el.closest(skipSelector),
+      );
+
+      for (const el of elements) {
+        const cs = getComputedStyle(el);
+
+        if (checkName === "purple") {
+          for (const prop of ["color", "backgroundColor", "borderTopColor"] as const) {
+            const hsl = toHsl(cs[prop]);
+            // Indigo/violet is hue 240-300. Allowed only if effectively greyscale.
+            if (hsl && hsl.s > 0.15 && hsl.h >= 240 && hsl.h <= 300) {
+              out.push({ selector: describe(el), detail: `${prop}: ${cs[prop]}` });
+              break;
+            }
+          }
+        }
+
+        if (checkName === "small-text") {
+          // Only elements holding their own text; a wrapper's inherited size is not a
+          // separate violation.
+          const ownText = Array.from(el.childNodes).some(
+            (n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim().length > 0,
+          );
+          if (!ownText || !visible(el)) continue;
+          const px = Number.parseFloat(cs.fontSize);
+          if (Number.isFinite(px) && px < 12) {
+            out.push({ selector: describe(el), detail: `${cs.fontSize} text` });
+          }
+        }
+
+        if (checkName === "small-tap") {
+          const interactive =
+            el.matches("button, a, select, input, textarea, [role='button']") && visible(el);
+          if (!interactive) continue;
+          // Checkboxes are sized by their padded label, which is what gets tapped.
+          if (el.matches("input[type='checkbox']")) continue;
+          /*
+           * Inline links are exempt. A link inside a sentence is sized by its text and
+           * cannot be 32px tall without breaking the line box; its tap area comes from
+           * the padding of the row or cell around it. The rule is about controls —
+           * buttons, selects, and links laid out as blocks such as tabs and rail items.
+           */
+          if (el.tagName === "A" && cs.display.startsWith("inline")) continue;
+          const r = el.getBoundingClientRect();
+          if (r.height < 32) {
+            out.push({ selector: describe(el), detail: `${Math.round(r.height)}px tall` });
+          }
+        }
+
+        if (checkName === "overflow") {
+          if (!visible(el)) continue;
+          /*
+           * Content inside a deliberately scrollable region is allowed to extend past
+           * the viewport — that is what the region is for. The mobile tab strip scrolls
+           * horizontally by design. What must never overflow is the page itself, which
+           * the "never scrolls sideways" test covers.
+           */
+          let scrollable = false;
+          for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+            const overflowX = getComputedStyle(p).overflowX;
+            if (overflowX === "auto" || overflowX === "scroll") {
+              scrollable = true;
+              break;
+            }
+          }
+          if (scrollable) continue;
+
+          const r = el.getBoundingClientRect();
+          // 2px of tolerance for sub-pixel layout rounding.
+          if (r.right > document.documentElement.clientWidth + 2) {
+            out.push({
+              selector: describe(el),
+              detail: `extends ${Math.round(r.right - document.documentElement.clientWidth)}px past the viewport`,
+            });
+          }
+        }
+      }
+
+      return out;
+    },
+    [check, SKIP_SELECTOR] as const,
+  );
+}
+
+const PAGES = [
+  { path: "/", ready: "table" as const },
+  { path: "/p/alpha-portal/brief", ready: "editor" as const },
+  { path: "/p/eta-board/board", ready: "board" as const },
+  { path: "/p/kappa-roadmap/roadmap", ready: "track" as const },
+  { path: "/p/kappa-roadmap/log", ready: "log" as const },
+  { path: "/p/gamma-questions/questions", ready: "questions" as const },
+];
+
+async function waitReady(
+  page: import("@playwright/test").Page,
+  ready: (typeof PAGES)[number]["ready"],
+): Promise<void> {
+  if (ready === "table") await expect(page.getByRole("table")).toBeVisible();
+  else if (ready === "editor") await expect(page.locator(".cm-content")).toBeVisible();
+  else if (ready === "board") await expect(page.getByTestId("board")).toBeVisible();
+  else if (ready === "track") await expect(page.getByTestId("phase-track")).toBeVisible();
+  else if (ready === "log") await expect(page.getByTestId("decision-log")).toBeVisible();
+  else await expect(page.getByTestId("questions-list")).toBeVisible();
+}
+
+for (const { path, ready } of PAGES) {
+  test.describe(`design rules on ${path}`, () => {
+    test.beforeEach(async ({ page }) => {
+      await page.goto(path);
+      await waitReady(page, ready);
+    });
+
+    test("no indigo, violet or purple", async ({ page }) => {
+      expect(await collectViolations(page, "purple")).toEqual([]);
+    });
+
+    test("no text below 12px", async ({ page }) => {
+      expect(await collectViolations(page, "small-text")).toEqual([]);
+    });
+
+    test("no interactive element under 32px tall", async ({ page }) => {
+      expect(await collectViolations(page, "small-tap")).toEqual([]);
+    });
+  });
+}
+
+test.describe("typography", () => {
+  test("body text is comfortable, not compact", async ({ page }) => {
+    await page.goto("/p/gamma-questions/questions");
+    const size = await page.evaluate(() =>
+      Number.parseFloat(getComputedStyle(document.body).fontSize),
+    );
+    expect(size).toBeGreaterThanOrEqual(16);
+  });
+
+  test("project titles keep the serif display face", async ({ page }) => {
+    await page.goto("/");
+    const family = await page
+      .getByRole("table")
+      .getByRole("link", { name: "Alpha Portal" })
+      .evaluate((el) => getComputedStyle(el).fontFamily);
+    expect(family.toLowerCase()).toContain("newsreader");
+  });
+
+  test("cards are tall enough to read at a glance", async ({ page }) => {
+    await page.goto("/p/eta-board/board");
+    const box = await page.getByTestId("card-1").boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(80);
+  });
+
+  test("exactly one h1, and the vault nav is labelled", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+    await expect(page.getByRole("navigation", { name: "Vault" })).toBeVisible();
+  });
+});
+
+test.describe("dark mode", () => {
+  test("keeps a warm background and no purple", async ({ browser }) => {
+    const context = await browser.newContext({ colorScheme: "dark" });
+    const page = await context.newPage();
+    await page.goto("/");
+    await expect(page.getByRole("table")).toBeVisible();
+
+    const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    expect(bg).not.toBe("rgba(0, 0, 0, 0)");
+    expect(bg).not.toBe("rgb(0, 0, 0)");
+
+    expect(await collectViolations(page, "purple")).toEqual([]);
+    await context.close();
+  });
+});
+
+/**
+ * Mobile is a first-class target, not a nice-to-have. These run at a real phone
+ * viewport, because a layout can pass every desktop check and still be unusable at
+ * 390px.
+ */
+test.describe("mobile at 390x844", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  for (const { path, ready } of PAGES) {
+    test(`nothing overflows the viewport on ${path}`, async ({ page }) => {
+      await page.goto(path);
+      await waitReady(page, ready);
+      expect(await collectViolations(page, "overflow")).toEqual([]);
+    });
+  }
+
+  test("the page never scrolls sideways", async ({ page }) => {
+    await page.goto("/p/eta-board/board");
+    await expect(page.getByTestId("board")).toBeVisible();
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
+    );
+    expect(overflows).toBe(false);
+  });
+
+  test("the rail is a drawer that opens, navigates and closes", async ({ page }) => {
+    await page.goto("/");
+
+    const rail = page.getByRole("navigation", { name: "Vault" });
+    // Off-canvas to start: present in the DOM, translated out of view.
+    const offscreenLeft = await rail.evaluate((el) => el.getBoundingClientRect().right);
+    expect(offscreenLeft).toBeLessThanOrEqual(0);
+
+    await page.getByTestId("menu-toggle").click();
+    await expect(page.getByTestId("menu-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(async () => {
+      const right = await rail.evaluate((el) => el.getBoundingClientRect().right);
+      expect(right).toBeGreaterThan(100);
+    }).toPass({ timeout: 5_000 });
+
+    await rail.getByRole("link", { name: /Alpha Portal/ }).click();
+    await expect(page).toHaveURL(/\/p\/alpha-portal\/brief$/);
+    // Navigating closes the drawer rather than leaving it covering the page.
+    await expect(page.getByTestId("menu-toggle")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("the overlay closes the drawer", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("menu-toggle").click();
+    await expect(page.getByTestId("rail-overlay")).toBeVisible();
+
+    // Click to the right of the open drawer. The overlay spans the whole viewport, so
+    // its centre sits underneath the drawer and a default click would hit that instead.
+    await page.getByTestId("rail-overlay").click({ position: { x: 360, y: 500 } });
+    await expect(page.getByTestId("rail-overlay")).toHaveCount(0);
+    await expect(page.getByTestId("menu-toggle")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("board columns stack instead of scrolling sideways", async ({ page }) => {
+    await page.goto("/p/eta-board/board");
+    await expect(page.getByTestId("board")).toBeVisible();
+
+    const boxes = await page
+      .locator(".column")
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
+    expect(boxes.length).toBeGreaterThan(1);
+    // Stacked, so each column starts below the previous one.
+    expect(boxes[1] ?? 0).toBeGreaterThan(boxes[0] ?? 0);
+  });
+
+  test("the dashboard reads as cards, not a cramped table", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("table")).toBeVisible();
+
+    // The header row is hidden and each cell carries its own label instead.
+    const headVisible = await page
+      .locator("thead")
+      .evaluate((el) => getComputedStyle(el).display !== "none");
+    expect(headVisible).toBe(false);
+
+    const label = await page
+      .getByRole("row", { name: /Alpha Portal/ })
+      .locator("td[data-label='Stage']")
+      .evaluate((el) => getComputedStyle(el, "::before").content);
+    expect(label.toLowerCase()).toContain("stage");
+  });
+
+  test("tap targets stay reachable at phone width", async ({ page }) => {
+    await page.goto("/p/gamma-questions/questions");
+    await expect(page.getByTestId("questions-list")).toBeVisible();
+    expect(await collectViolations(page, "small-tap")).toEqual([]);
+  });
+});
