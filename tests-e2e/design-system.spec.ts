@@ -227,6 +227,16 @@ test.describe("typography", () => {
     expect(seen.weight).toBeGreaterThanOrEqual(500);
   });
 
+  test("the chosen sans is actually the one rendering", async ({ page }) => {
+    // Everything else here asserts an *absence* — no newsreader, no georgia. If the face
+    // failed to load, or the CSS variable got shadowed, the whole app would fall back to
+    // system-ui and every one of those checks would still pass. This is the only case that
+    // notices, and it is the reason it exists.
+    await page.goto("/");
+    const body = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
+    expect(body.toLowerCase()).toContain("instrument");
+  });
+
   test("no second display face anywhere on the page", async ({ page }) => {
     // The check above looks at one link on one page, which is not what stops a serif
     // reappearing at a selector nobody thought to assert on. This walks everything.
@@ -331,12 +341,58 @@ test.describe("theme", () => {
     // CSS cannot put a media condition inside a selector list, so the dark palette is
     // written twice — once for the explicit choice, once inside the media query for
     // "system". Nothing but this stops the two copies diverging.
+    //
+    // It reads EVERY custom property off the root, not just the background. An earlier
+    // version compared `body`'s background alone, which is one of twenty tokens: --accent,
+    // --ink, --line, the five status hues and the three shadows could all have diverged
+    // while it passed. A guard that covers 5% of what it claims to guard is worse than
+    // none, because the comment above says it is covered.
+    const readTokens = (page: import("@playwright/test").Page) =>
+      page.evaluate(() => {
+        const style = getComputedStyle(document.documentElement);
+        const names = Array.from(document.styleSheets)
+          .flatMap((sheet) => {
+            try {
+              return Array.from(sheet.cssRules);
+            } catch {
+              return []; // a cross-origin sheet, which cannot hold our tokens anyway
+            }
+          })
+          .flatMap((rule) =>
+            rule instanceof CSSStyleRule ? Array.from(rule.style) : [],
+          )
+          .filter((prop) => prop.startsWith("--"));
+
+        const seen: Record<string, string> = {};
+        for (const name of new Set(names)) seen[name] = style.getPropertyValue(name).trim();
+        return seen;
+      });
+
     const explicit = await pageWithTheme(browser, { theme: "dark", prefers: "light" });
     const viaSystem = await pageWithTheme(browser, { theme: "system", prefers: "dark" });
 
-    expect(await bodyBackground(explicit.page)).toBe(await bodyBackground(viaSystem.page));
+    const a = await readTokens(explicit.page);
+    const b = await readTokens(viaSystem.page);
+
+    // If this ever finds nothing, the reader has stopped working and the test is vacuous.
+    expect(Object.keys(a).length).toBeGreaterThan(15);
+    expect(b).toEqual(a);
+
     await explicit.context.close();
     await viaSystem.context.close();
+  });
+
+  test("the purple ban holds in dark, both ways of reaching it", async ({ browser }) => {
+    // The sweep used to run against explicit dark only, so a violation reachable solely
+    // through the "system" copy of the palette was never looked at.
+    for (const opts of [
+      { theme: "dark", prefers: "light" as const },
+      { theme: "system", prefers: "dark" as const },
+    ]) {
+      const { context, page } = await pageWithTheme(browser, opts);
+      expect(await collectViolations(page, "purple")).toEqual([]);
+      await context.close();
+    }
   });
 
   test("the toggle changes the palette and survives a reload", async ({ browser }) => {

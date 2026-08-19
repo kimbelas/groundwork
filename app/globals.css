@@ -72,7 +72,16 @@
   --space-7: 48px;
   --space-8: 64px;
 
-  /* Chosen to match sizes already shipping, so naming the scale changes no rendered type. */
+  /*
+   * Chosen to match sizes already shipping, so naming the scale changed no rendered type.
+   *
+   * Three shipping sizes deliberately have no token: 14, 19 and 21. They are one-offs that
+   * predate any scale, and the consolidation is pre-decided so it cannot drift when those
+   * components are rebuilt — **14 becomes --text-sm (15), 19 becomes --text-lg (20), 21
+   * becomes --text-xl (22).** Every one rounds UP. Writing the direction down here matters
+   * because the only automatic floor is 12px: rounding the wrong way would shrink type and
+   * pass silently, which is the exact failure this design was rebuilt to stop.
+   */
   --text-2xs: 12px;
   --text-xs: 13px;
   --text-sm: 15px;

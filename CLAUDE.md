@@ -29,14 +29,15 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
 
 ### Design rules — do not regress these
 
-The visual language is **Clean & Bright** (see `docs/05-design-system.md`). It replaced an
-earlier dense design that was rejected for being too small and too cramped, so the rules
-guard comfort rather than austerity.
+The visual language is **Graphite** (see `docs/05-design-system.md`): near-monochrome
+neutrals, one accent used only to mark state, one sans and one mono. It follows two designs
+that were rejected — one for being too small and cramped, one for being too soft — so the
+rules guard comfort without softness.
 
-That document described a *different* palette for a full revision after the CSS had moved
-on, and nothing caught it. **A change to the design changes its guardrail — the lint rule,
-the e2e assertion and the doc — in the same commit.** Anything less is how the last drift
-happened.
+A previous palette name survived here for a full revision after the CSS had moved on, and
+nothing caught it. **A change to the design changes its guardrail — the lint rule, the e2e
+assertion and the doc — in the same commit.** Anything less is how the last drift happened,
+and this paragraph has itself been stale once, which is the point.
 
 - **Comfortable sizing is not up for negotiation.** No type below 12px, body copy 15px or
   larger, controls at the floor below. A redesign may change the shape; it does not get to
@@ -52,9 +53,10 @@ happened.
 - **No hard-coded colours outside the token block** in `globals.css`. Use `--ink`,
   `--surface`, `--line`, `--accent`, or a `--s-*` status hue.
 - **No indigo, violet or purple** — the generic-AI tell, and the one hue family both
-  enforcement layers hunt for. **No Tailwind cool-grey utility classes** (`slate`, `zinc`,
-  `gray`); that rule bans the class names, and the token block being slate-derived by hex
-  is legitimate, since the tokens *are* the palette.
+  enforcement layers hunt for. The e2e audit rejects computed hues 240–300 above 0.15
+  saturation, so a new accent must sit below 240 or above 300; Graphite's is around 166 and
+  its `--s-active` around 214. **No Tailwind cool-grey utility classes** (`slate`, `zinc`,
+  `gray`); that rule bans the class names, and the app uses no Tailwind utilities at all.
 - **No emoji in UI chrome.** Use a status chip or an inline SVG.
 - **Words on screen, codes in files.** Display "High" and "80% sure" via `lib/labels.ts`;
   the vault keeps `P1` and `0.8` because a person hand-edits those files.

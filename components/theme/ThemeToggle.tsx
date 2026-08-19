@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { THEMES, type Theme, nextTheme, themeCookie, themeLabel } from "@/lib/theme";
+import { type Theme, nextTheme, themeCookie, themeLabel } from "@/lib/theme";
 
 /**
  * Cycles light → dark → system.
@@ -91,6 +91,3 @@ function ThemeIcon({ theme }: { theme: Theme }) {
     </svg>
   );
 }
-
-/** Exported so a caller can render every option without importing the constant twice. */
-export const ALL_THEMES = THEMES;

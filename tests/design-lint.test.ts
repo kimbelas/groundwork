@@ -75,7 +75,7 @@ describe("the linter runs at all", () => {
   });
 
   it("governs .ts, because CSS-in-TS is still CSS", async () => {
-    // `components/editor/blueprintHighlight.ts` styles the editor from a plain object, and
+    // `components/editor/markdownHighlight.ts` styles the editor from a plain object, and
     // it held one of the eight references to the display face. Under the original
     // `.(tsx|jsx|css)` filter no automation could ever have reminded anyone it existed.
     const { code } = await lint('const theme = { color: "#6366f1" };', ".ts");
@@ -155,6 +155,48 @@ describe("tap floor", () => {
   it("stays silent on something that is not a control", async () => {
     const { code } = await lint(".card-meta { min-height: 20px; }");
     expect(code).toBe(0);
+  });
+
+  /**
+   * The cross-file case, which is what a component library needs.
+   *
+   * Tokens are declared in `app/globals.css` and used everywhere else, so a linter reading
+   * only the file in front of it cannot resolve `var(--ctl-sm)` in a component — and an
+   * unresolvable value is not judged. The rule would look like it covered components while
+   * covering nothing, the same fail-open shape as the unit and indirection holes.
+   */
+  it("resolves a token declared in globals.css from another file", async () => {
+    const { code, out } = await lint(
+      'export const S = () => <button style={{ minHeight: "var(--space-5)" }} />;',
+      ".tsx",
+    );
+    expect(code).toBe(1);
+    // 24px, from a token this file never declares.
+    expect(out).toContain("resolves to 24px");
+  });
+
+  it("allows a control sized from a control token", async () => {
+    const { code } = await lint(
+      'export const S = () => <button style={{ minHeight: "var(--ctl-sm)" }} />;',
+      ".tsx",
+    );
+    expect(code).toBe(0);
+  });
+
+  it("treats a quoted value the same as a bare one", async () => {
+    // CSS-in-JS quotes its values. Without stripping them the `var(` pattern never matches,
+    // so every component sizing itself from a token would be waved through — and the report
+    // would lose the chain that makes it actionable.
+    const quoted = await lint(
+      'export const S = () => <button style={{ minHeight: "var(--space-5)" }} />;',
+      ".tsx",
+    );
+    const bare = await lint(".nav-item { min-height: var(--space-5); }");
+
+    expect(quoted.code).toBe(1);
+    expect(bare.code).toBe(1);
+    expect(quoted.out).toContain("resolves to 24px");
+    expect(bare.out).toContain("resolves to 24px");
   });
 
   it("does not mistake a container for its control", async () => {

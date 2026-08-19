@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Design-system lint — see docs/05-design-system.md ("Clean & Bright").
+ * Design-system lint — see docs/05-design-system.md ("Graphite").
  *
  * Takes file paths as arguments and exits non-zero on a violation, which is the shape
  * the coach-core `lint` gate expects (it appends the changed file path to the command).
@@ -145,10 +145,9 @@ const MIN_TAP_PX = 32;
  * Capture the whole declared value, not just a literal number: `var(...)` has to reach us.
  *
  * Both spellings, because `.ts` is linted now and CSS-in-JS writes `fontSize`. The editor
- * theme in `components/editor/blueprintHighlight.ts` styles headings from a plain object,
- * and under a kebab-only pattern it was invisible to these rules even once the file was in
- * scope. A quoted value is fine — the length is pulled out by regex, so trailing punctuation
- * does not matter.
+ * theme in `components/editor/markdownHighlight.ts` styles headings from a plain object, and
+ * under a kebab-only pattern it was invisible to these rules even once the file was in
+ * scope. Quoting is handled by `unquote` below.
  */
 const FONT_DECL = /\b(?:font-size|fontSize)\s*:\s*([^;}\n]+)/gi;
 const MIN_HEIGHT_DECL = /\b(?:min-height|minHeight)\s*:\s*([^;}\n]+)/gi;
@@ -160,11 +159,34 @@ const TOKEN_DECL = /(--[\w-]+)\s*:\s*([^;}\n]+)/g;
 const UNIT_PX = { px: 1, rem: 16, pt: 4 / 3, in: 96, cm: 96 / 2.54, mm: 96 / 25.4 };
 const LENGTH = /(-?[0-9.]+)(px|rem|pt|in|cm|mm)\b/gi;
 
+/**
+ * The token block, read once, so a `var()` used anywhere resolves.
+ *
+ * Tokens are declared in `app/globals.css` and used everywhere else. Reading only the file
+ * being linted means `minHeight: "var(--ctl-sm)"` inside a component is unresolvable, and an
+ * unresolvable value is not judged — the same fail-open shape as the unit and indirection
+ * holes before it. That matters from the moment sizing moves into TS, which is exactly what
+ * building a component library does.
+ *
+ * Missing or unreadable is not fatal: the per-file map still works, and a linter that
+ * refuses to run is worse than one that judges less.
+ */
+const GLOBAL_TOKENS = (() => {
+  try {
+    return fs.readFileSync(path.join(process.cwd(), "app", "globals.css"), "utf8");
+  } catch {
+    return "";
+  }
+})();
+
 function tokenMap(text) {
   const map = new Map();
-  TOKEN_DECL.lastIndex = 0;
-  let m;
-  while ((m = TOKEN_DECL.exec(text)) !== null) map.set(m[1], m[2].trim());
+  // The file under lint is read second, so a local declaration wins over the global one.
+  for (const source of [GLOBAL_TOKENS, text]) {
+    TOKEN_DECL.lastIndex = 0;
+    let m;
+    while ((m = TOKEN_DECL.exec(source)) !== null) map.set(m[1], m[2].trim());
+  }
   return map;
 }
 
@@ -185,8 +207,19 @@ function tokenMap(text) {
  * judged", never "fine" — but a floor cannot report what it cannot measure, and guessing
  * would train the reader to ignore the warning.
  */
+/**
+ * CSS-in-JS quotes its values — `minHeight: "var(--ctl-sm)"`. Without stripping, the
+ * `var(` pattern never matches, the value resolves to null, and null is not judged: the
+ * rule would look like it covered components while covering nothing.
+ */
+const unquote = (raw) =>
+  String(raw)
+    .trim()
+    .replace(/^["'`]|["'`]$/g, "")
+    .trim();
+
 function resolveLength(raw, tokens, seen = new Set()) {
-  const value = String(raw).trim();
+  const value = unquote(raw);
 
   const varMatch = /^var\(\s*(--[\w-]+)\s*(?:,([\s\S]+))?\)$/i.exec(value);
   if (varMatch) {
@@ -307,7 +340,9 @@ for (const file of files) {
     const declared = (f[1] ?? "").trim();
     const px = resolveLength(declared, tokens);
     if (px === null || px >= MIN_FONT_PX) continue;
-    const via = declared.startsWith("var(") ? ` (${declared} resolves to ${show(px)})` : "";
+    const via = unquote(declared).startsWith("var(")
+      ? ` (${unquote(declared)} resolves to ${show(px)})`
+      : "";
     report(
       f.index,
       "type too small",
@@ -325,7 +360,9 @@ for (const file of files) {
     // Only complain when the declaration is plausibly on something interactive.
     const around = text.slice(Math.max(0, h.index - 400), h.index);
     if (!TAP_CONTEXT.test(around)) continue;
-    const via = declared.startsWith("var(") ? ` (${declared} resolves to ${show(px)})` : "";
+    const via = unquote(declared).startsWith("var(")
+      ? ` (${unquote(declared)} resolves to ${show(px)})`
+      : "";
     report(
       h.index,
       "tap target too small",
