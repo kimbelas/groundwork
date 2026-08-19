@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { readData, split } from "@/lib/frontmatter";
+import { DEFAULT_COLUMNS } from "@/lib/schema";
 
 /**
  * Test 5 of the five: a write carrying a stale mtime must 409 and leave the file
@@ -182,6 +183,27 @@ describe("createProject", () => {
     for (const f of ["project.md", "roadmap.md", "questions.md", "risks.md", "log.md"]) {
       await expect(fsp.access(path.join(dir, "translator-rates", f))).resolves.toBeUndefined();
     }
+  });
+
+  it("starts a new project on the default columns", async () => {
+    const meta = await vault.createProject({ name: "Column Defaults" });
+    const project = await vault.getProject(meta.slug);
+
+    expect(project.meta.columns).toEqual([...DEFAULT_COLUMNS]);
+    // Ordinary words, and none of them colliding with a stage or a phase name — "Shaping"
+    // used to be all three at once.
+    expect(project.meta.columns).toContain("Backlog");
+    expect(project.meta.columns).toContain("In progress");
+    expect(project.meta.columns).not.toContain("Shaping");
+  });
+
+  it("does not force those columns on a project that already has its own", async () => {
+    // Columns are per-project data, so the default is a starting point and nothing more.
+    // The e2e fixtures rely on this: they use names of their own, which is what proves
+    // no part of the app has quietly hard-coded the defaults.
+    const project = await vault.getProject("portal-rebuild");
+    expect(project.meta.columns).not.toEqual([...DEFAULT_COLUMNS]);
+    expect(project.meta.columns.length).toBeGreaterThan(0);
   });
 
   it("refuses to overwrite an existing project", async () => {

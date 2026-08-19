@@ -20,7 +20,25 @@ export const PRIORITIES = ["P1", "P2", "P3"] as const;
 export const SIZES = ["S", "M", "L"] as const;
 export const LIKELIHOODS = ["low", "med", "high"] as const;
 
-export const DEFAULT_COLUMNS = ["Intake", "Shaping", "Build", "Review", "Done"] as const;
+/**
+ * The columns a new project starts with.
+ *
+ * Ordinary words, deliberately. The previous set - Intake, Shaping, Build, Review, Done -
+ * was vocabulary this project invented, and two of those names collided with other axes:
+ * "Shaping" was simultaneously a column, a project stage and a roadmap phase name, so the
+ * same word meant three unrelated things depending on where it appeared.
+ *
+ * This is only a DEFAULT. Columns are per-project data in project.md frontmatter, so an
+ * existing project keeps whatever it has, and nothing in the app may assume these names -
+ * the e2e fixtures deliberately use other ones, which is what proves it.
+ */
+export const DEFAULT_COLUMNS = [
+  "Backlog",
+  "To do",
+  "In progress",
+  "In review",
+  "Done",
+] as const;
 
 export const StageSchema = z.enum(STAGES);
 export const HealthSchema = z.enum(HEALTHS);
