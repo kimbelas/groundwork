@@ -274,6 +274,8 @@ export function Board({ data }: { data: BoardData }) {
           slug={data.slug}
           cardId={selectedCard.id}
           title={selectedCard.title}
+          phases={data.phases}
+          cards={data.cards}
           onClose={() => setSelected(null)}
           onChanged={() => router.refresh()}
         />

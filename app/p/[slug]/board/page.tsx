@@ -34,6 +34,7 @@ export default async function BoardPage({ params }: { params: Promise<{ slug: st
         columns: project.meta.columns,
         cards,
         projectMtimeMs: project.mtimeMs,
+        phases: project.phases,
       }}
     />
   );

@@ -136,6 +136,11 @@ and this paragraph has itself been stale once, which is the point.
 - **The full suite is ~7 minutes and gets killed by long-running-command limits.**
   Running it in spec batches is equivalent and finishes: each batch re-runs the warmup
   setup, so the totals add up to the suite count plus one per extra batch.
+- **A cold `.next-e2e` can time a test out on its own.** The per-test limit is 60s, and a
+  first run after the build dir is cleared spends much of that compiling — one board case
+  timed out at 60s on a 1.8-minute run and passed on the 1.2-minute re-run with no code
+  change. Before calling a single timeout a regression, re-run it; if it passes on a warm
+  build dir it was the compile, not the code.
 - A UI component must not unmount itself before reporting what it did. Closing a pane
   or clearing state in an `onApplied`/success handler destroys the confirmation the
   user needs. Three separate bugs of this shape have shipped and been caught.

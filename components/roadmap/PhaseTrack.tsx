@@ -1,3 +1,4 @@
+import { phaseNumbers } from "@/lib/phases";
 import type { CardMeta, Phase } from "@/lib/schema";
 
 /**
@@ -22,17 +23,19 @@ export function PhaseTrack({
   const unphased = cards.filter((c) => c.phase === null);
 
   /**
-   * Lanes come from the declared phases *and* from any phase number a card actually
-   * references. A card assigned to phase 3 when roadmap.md declares none would
-   * otherwise vanish from this view entirely — present on the board, invisible here.
+   * Lanes come from the declared phases *and* from every phase number a card references.
+   * A card assigned to phase 3 when roadmap.md declares none would otherwise vanish from
+   * this view entirely — present on the board, invisible here.
+   *
+   * The rule moved to `lib/phases.ts` because the card detail pane needs the same answer.
+   * It used to be worked out here and hard-coded there as 1 to 8, which is exactly how two
+   * views come to disagree about what exists. An undeclared number still gets a synthesised
+   * lane, since it has no name or goal to show.
    */
-  const declared = new Set(phases.map((p) => p.n));
-  const undeclared = [...new Set(cards.map((c) => c.phase).filter((n): n is number => n !== null))]
-    .filter((n) => !declared.has(n))
-    .sort((a, b) => a - b)
-    .map((n): Phase => ({ n, name: `Phase ${n}`, goal: "" }));
-
-  const allPhases = [...phases, ...undeclared].sort((a, b) => a.n - b.n);
+  const byNumber = new Map(phases.map((p) => [p.n, p]));
+  const allPhases = phaseNumbers(phases, cards).map(
+    (n): Phase => byNumber.get(n) ?? { n, name: `Phase ${n}`, goal: "" },
+  );
 
   if (allPhases.length === 0 && unphased.length === 0) {
     return (

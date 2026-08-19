@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 
 import { EnhanceCard } from "@/components/ai/EnhanceCard";
 import { parseChecklist, toggleChecklistItem } from "@/lib/checklist";
+import { confidenceChoices, confidenceLabel, priorityLabel, sizeLabel } from "@/lib/labels";
+import { phaseChoices, phaseName } from "@/lib/phases";
 import { PRIORITIES, SIZES } from "@/lib/schema";
 
-import type { CardMeta } from "@/lib/schema";
+import type { CardMeta, Phase } from "@/lib/schema";
 
 interface FullCard extends CardMeta {
   body: string;
@@ -24,6 +26,8 @@ export function CardDetail({
   slug,
   cardId,
   title,
+  phases,
+  cards,
   onClose,
   onChanged,
 }: {
@@ -31,6 +35,9 @@ export function CardDetail({
   cardId: number;
   /** Shown in the header while the body loads. */
   title: string;
+  /** Declared in roadmap.md. With the cards below, these decide what Phase can offer. */
+  phases: Phase[];
+  cards: readonly { phase: number | null }[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -196,9 +203,10 @@ export function CardDetail({
                 aria-label="Priority"
                 onChange={(e) => void patchMeta({ priority: e.target.value })}
               >
+                {/* Value stays the stored code; only the text is a word. */}
                 {PRIORITIES.map((p) => (
                   <option key={p} value={p}>
-                    {p}
+                    {priorityLabel(p)}
                   </option>
                 ))}
               </select>
@@ -215,7 +223,7 @@ export function CardDetail({
               >
                 {SIZES.map((s) => (
                   <option key={s} value={s}>
-                    {s}
+                    {sizeLabel(s)}
                   </option>
                 ))}
               </select>
@@ -225,14 +233,22 @@ export function CardDetail({
               <span className="label">Confidence</span>
               <select
                 className="select"
-                value={full.confidence.toFixed(1)}
+                value={full.confidence.toFixed(2)}
                 disabled={busy}
                 aria-label="Confidence"
                 onChange={(e) => void patchMeta({ confidence: Number(e.target.value) })}
               >
-                {["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1.0"].map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                {/*
+                  Built from the card's own value, not a fixed list.
+                  A hard-coded 0.1-1.0 had no entry for 0, and none for anything an AI
+                  proposal supplies off the tenths - 0.85 matched nothing, so the control
+                  rendered BLANK while the file held a real number. Worse, editing any
+                  other field then submitted whatever the empty select resolved to,
+                  silently rewriting a value nobody touched.
+                */}
+                {confidenceChoices(full.confidence).map((c) => (
+                  <option key={c} value={c.toFixed(2)}>
+                    {confidenceLabel(c)}
                   </option>
                 ))}
               </select>
@@ -250,9 +266,14 @@ export function CardDetail({
                 }
               >
                 <option value="">—</option>
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                {/*
+                  The phases this project actually has, by the same rule the roadmap uses
+                  for its lanes. A fixed 1-8 was wrong twice over: it offered phases that
+                  do not exist, and it hid any past 8, so a card in phase 9 showed nothing.
+                */}
+                {phaseChoices(phases, cards, full.phase).map((n) => (
                   <option key={n} value={n}>
-                    {n}
+                    {phaseName(phases, n)}
                   </option>
                 ))}
               </select>

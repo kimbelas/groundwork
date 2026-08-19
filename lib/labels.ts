@@ -45,6 +45,27 @@ export function confidenceLabel(confidence: number): string {
   return `${Math.round(clamped * 100)}% sure`;
 }
 
+/**
+ * The values a confidence control offers, always including the one the card already holds.
+ *
+ * The tenths are the useful granularity for a judgement like this, but they cannot be the
+ * *only* options. A card can hold `0` — which the previous hard-coded list omitted outright,
+ * starting at 0.1 — or a value an AI proposal supplied off the grid, such as 0.85. A select
+ * whose value matches no option renders blank, which reads as "unset" while the file says
+ * otherwise, and submitting any other field then writes whatever the blank control resolves
+ * to. Including the current value costs one entry and removes the whole failure.
+ */
+export function confidenceChoices(current: number): number[] {
+  const tenths = Array.from({ length: 11 }, (_, i) => i / 10);
+  const clamped = Math.max(0, Math.min(1, current));
+  const rounded = Number(clamped.toFixed(2));
+
+  const seen = new Set(tenths.map((n) => Number(n.toFixed(2))));
+  seen.add(rounded);
+
+  return [...seen].sort((a, b) => a - b);
+}
+
 export function progressLabel(done: number, total: number): string {
   if (total === 0) return "No criteria yet";
   if (done === total) return `All ${total} done`;

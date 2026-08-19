@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   archetypeLabel,
+  confidenceChoices,
   confidenceLabel,
   healthLabel,
   likelihoodLabel,
@@ -129,5 +130,40 @@ describe("every enum reaches the screen as words", () => {
     // "Shaping" was simultaneously a stage, a default board column and a roadmap phase
     // name. Only the stage changes here; the other two are separate axes.
     expect(stageLabel("shaping")).toBe("Planning");
+  });
+});
+
+describe("confidenceChoices", () => {
+  it("offers every tenth, including zero", () => {
+    // The old hard-coded list started at 0.1, so a card at 0 could not display its value.
+    const choices = confidenceChoices(0.5);
+    expect(choices).toContain(0);
+    expect(choices).toContain(1);
+    expect(choices.length).toBe(11);
+  });
+
+  it("always contains the card's own value, so the control is never blank", () => {
+    // 0.85 is the shape an AI proposal produces. It matched no option, so the select
+    // rendered empty while the file held a real number — and editing any other field then
+    // submitted whatever that blank control resolved to.
+    for (const value of [0, 0.85, 0.33, 1]) {
+      expect(confidenceChoices(value)).toContain(Number(value.toFixed(2)));
+    }
+  });
+
+  it("does not duplicate a value that is already a tenth", () => {
+    expect(confidenceChoices(0.8).filter((c) => c === 0.8)).toHaveLength(1);
+    expect(confidenceChoices(0.8)).toHaveLength(11);
+  });
+
+  it("stays sorted so the control reads low to high", () => {
+    const choices = confidenceChoices(0.85);
+    expect(choices).toEqual([...choices].sort((a, b) => a - b));
+  });
+
+  it("clamps a value outside the range rather than offering it", () => {
+    expect(confidenceChoices(5)).toContain(1);
+    expect(confidenceChoices(5).every((c) => c <= 1)).toBe(true);
+    expect(confidenceChoices(-2).every((c) => c >= 0)).toBe(true);
   });
 });
