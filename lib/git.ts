@@ -1,3 +1,4 @@
+import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -37,9 +38,26 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+/**
+ * True only when `cwd` is the ROOT of a git repository, not merely inside one.
+ *
+ * `--is-inside-work-tree` answers a different question: it is true anywhere beneath an
+ * enclosing repo. That is not what this module wants. The vault is git-tracked
+ * *separately* so its history reads as the project's decision log; if the vault sits
+ * inside some other repository — a notes folder in a monorepo, or the e2e fixture vault
+ * inside this app's own tree — then a true answer sends every apply's commit into that
+ * outer repository instead. The commits land somewhere real, which is what makes the
+ * failure quiet: nothing errors, the wrong history just grows.
+ *
+ * Comparing `--show-toplevel` to `cwd` is the check that matches the intent stated in
+ * the caller's own skip message, and in docs/04-ai-layer.md ("silently disabled when
+ * vault/.git is absent").
+ */
 export async function isRepo(cwd: string): Promise<boolean> {
   try {
-    return (await git(cwd, ["rev-parse", "--is-inside-work-tree"])) === "true";
+    const top = await git(cwd, ["rev-parse", "--show-toplevel"]);
+    if (!top) return false;
+    return path.resolve(top) === path.resolve(cwd);
   } catch {
     return false;
   }

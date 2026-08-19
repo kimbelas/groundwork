@@ -219,3 +219,38 @@ describe("commit messages", () => {
     expect(msg).toContain("Snapshot: 2026-08-19T06-14-00-000Z");
   });
 });
+
+/**
+ * A vault nested inside some *other* repository is not a vault with its own history.
+ *
+ * `isRepo` used `--is-inside-work-tree`, which is true anywhere beneath an enclosing
+ * repo, so every apply's commit went into that outer repository instead — quietly,
+ * because the commit really was created. Found when this app's own source was first put
+ * under git: the e2e fixture vault lives inside the app tree, and a single suite run
+ * wrote four commits into it.
+ *
+ * The pre-existing "outside one" case cannot catch this: it uses a temp dir that is not
+ * inside any repository, so it passed before the fix as well as after.
+ */
+describe("isRepo — nested inside another repository", () => {
+  it("is false for a directory merely inside a repository", async () => {
+    const nested = path.join(dir, "vault");
+    await fsp.mkdir(nested, { recursive: true });
+
+    expect(await isRepo(nested)).toBe(false);
+    expect(await isRepo(dir)).toBe(true);
+  });
+
+  it("does not commit into an enclosing repository", async () => {
+    const nested = path.join(dir, "vault");
+    await fsp.mkdir(nested, { recursive: true });
+    await fsp.writeFile(path.join(nested, "note.md"), "planned\n", "utf8");
+
+    const before = await git(["rev-parse", "HEAD"]);
+    const result = await commitPaths(nested, ["note.md"], "should not land");
+
+    expect(result.ok).toBe(false);
+    expect(result.skipped).toMatch(/not a git repository/);
+    expect(await git(["rev-parse", "HEAD"])).toBe(before);
+  });
+});

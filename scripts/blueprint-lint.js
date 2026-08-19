@@ -101,12 +101,14 @@ const RULES = [
   {
     name: "indigo/violet",
     re: /#(?:4f46e5|6366f1|818cf8|7c3aed|8b5cf6|a78bfa|eef2ff|23233f|667eea)\b/gi,
-    hint: "The accent is --accent (deep teal). Purple is the generic-AI tell.",
+    hint:
+      "Use var(--accent). Purple is the generic-AI tell. Note indigo-500 (#6366f1) is hue 239 " +
+      "and slips under the e2e hue check, so this hex list is the layer that catches it.",
   },
   {
     name: "tailwind cool utility",
     re: /\b(?:bg|text|border|ring|from|to|via)-(?:indigo|violet|purple|fuchsia|slate|zinc|gray)-\d{2,3}\b/g,
-    hint: "Use the warm tokens: --ink, --ink-soft, --surface, --accent, or a status hue.",
+    hint: "Use the design tokens: --ink, --ink-soft, --surface, --line, --accent, or a --s-* status hue.",
   },
 ];
 
@@ -122,12 +124,65 @@ const HEX_ALLOWED = /^#(?:fff|ffffff)$/i;
 
 /** Anything below these is a comfort regression, which is what the redesign fixed. */
 const MIN_FONT_PX = 12;
-const FONT_DECL = /\bfont-size\s*:\s*([0-9.]+)px/g;
+const FONT_DECL = /\bfont-size\s*:\s*([0-9.]+)(px|rem)\b/g;
 
 /** Interactive elements must stay reachable by thumb. */
 const MIN_TAP_PX = 32;
-const MIN_HEIGHT_DECL = /\bmin-height\s*:\s*([0-9.]+)px/g;
-const TAP_CONTEXT = /\b(button|\.tab|\.rail-link|\.select|\.input|\.criteria|\.proposal-row)\b/;
+const MIN_HEIGHT_DECL = /\bmin-height\s*:\s*([0-9.]+)(px|rem)\b/g;
+
+/**
+ * Resolve a declared length to px. Both floors above are stated in px.
+ *
+ * The two floor rules are the only ones in this file that fail OPEN: a rule that does not
+ * match simply never fires, so a token scale authored in rem would switch both comfort
+ * guarantees off with nothing reported. Every other rule here fails closed. 1rem is taken
+ * as 16px, this app's root size — which is also why the token block itself stays in px: a
+ * per-file linter cannot resolve a rem whose root size is declared in another file.
+ */
+const toPx = (n, unit) => (unit === "rem" ? n * 16 : n);
+/**
+ * A class vocabulary, not a description of the DOM.
+ *
+ * Renaming a class without adding the new name here switches this rule off for that
+ * component and reports nothing — the same fail-open shape as the unit bug above. Add a new
+ * name BEFORE the CSS that uses it lands; remove an old one only once nothing uses it.
+ */
+/**
+ * A class vocabulary, not a description of the DOM.
+ *
+ * Renaming a class without adding the new name here switches this rule off for that
+ * component and reports nothing — the same fail-open shape as the unit bug above. Add a
+ * new name BEFORE the CSS that uses it lands; remove an old one only once nothing uses it.
+ *
+ * NOTE the boundary. This list was previously wrapped in \b(...)\b, and a leading \b before a
+ * literal "." only matches when a word character precedes it — which never happens for a
+ * bare class selector at the start of a rule. Every dotted entry was therefore dead: only
+ * "button" ever fired, so ".select { min-height: 28px }" passed the tap floor silently.
+ * There is no leading boundary now, and the trailing lookahead is what keeps ".tab" from
+ * matching ".tabs".
+ */
+const TAP_NAMES = [
+  "button",
+  "\\.tab",
+  "\\.rail-link",
+  "\\.tree-item",
+  "\\.tree-toggle",
+  "\\.nav-item",
+  "\\.sidebar-toggle",
+  "\\.breadcrumb-link",
+  "\\.select",
+  "\\.input",
+  "\\.field",
+  "\\.criteria",
+  "\\.proposal-row",
+  "\\.palette-item",
+  "\\.panel-close",
+  "\\.icon-btn",
+];
+
+const TAP_CONTEXT = new RegExp(
+  "(" + TAP_NAMES.join("|") + ")(?![\\w-])",
+);
 
 const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{1F900}-\u{1F9FF}]/gu;
 
@@ -179,7 +234,7 @@ for (const file of files) {
   FONT_DECL.lastIndex = 0;
   let f;
   while ((f = FONT_DECL.exec(text)) !== null) {
-    const px = Number.parseFloat(f[1] ?? "0");
+    const px = toPx(Number.parseFloat(f[1] ?? "0"), f[2]);
     if (px >= MIN_FONT_PX) continue;
     report(
       f.index,
@@ -191,7 +246,7 @@ for (const file of files) {
   MIN_HEIGHT_DECL.lastIndex = 0;
   let h;
   while ((h = MIN_HEIGHT_DECL.exec(text)) !== null) {
-    const px = Number.parseFloat(h[1] ?? "0");
+    const px = toPx(Number.parseFloat(h[1] ?? "0"), h[2]);
     if (px >= MIN_TAP_PX) continue;
     // Only complain when the declaration is plausibly on something interactive.
     const around = text.slice(Math.max(0, h.index - 400), h.index);
