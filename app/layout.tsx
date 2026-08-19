@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
+import { cookies } from "next/headers";
 
 import { Rail } from "@/components/rail/Rail";
 import { RailShell } from "@/components/rail/RailShell";
+import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 
 import "./globals.css";
 
@@ -44,10 +46,26 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+/**
+ * The theme attribute is written here, on the server, and that placement is the whole
+ * design.
+ *
+ * It decides which palette the *first paint* uses. Read it on the client instead and every
+ * navigation paints light and then flips, which is a visible flash on every page. Reading
+ * the cookie in the root layout puts the right value in the first byte of HTML, so there is
+ * never an unstamped state for the CSS to guess at.
+ *
+ * `colorScheme` tells the browser which way the page leans, so form controls, scrollbars and
+ * the canvas behind the body match instead of staying stubbornly light.
+ */
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
+
   return (
     <html
       lang="en"
+      data-theme={theme}
+      style={{ colorScheme: theme === "system" ? "light dark" : theme }}
       className={`${sans.variable} ${jetbrainsMono.variable}`}
     >
       <body>

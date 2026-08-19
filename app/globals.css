@@ -95,8 +95,48 @@
   --pane-x: 34px;
 }
 
+/*
+ * Dark.
+ *
+ * Light is the default and dark is a choice, so these tokens are no longer behind a bare
+ * media query: following the OS is one of three options rather than the fallback. The root
+ * always carries a data-theme attribute, written server-side from a cookie, so there is no
+ * unstamped state and no flash of the wrong palette on first paint.
+ *
+ * The block appears twice because CSS cannot put a media condition inside a selector list.
+ * The two must stay identical, and a design-system e2e case asserts that an explicit dark
+ * and a system dark compute to the same background — which is what catches them drifting.
+ */
+:root[data-theme="dark"] {
+  --bg: #131414;
+  --surface: #1b1d1c;
+  --surface-2: #212423;
+  --surface-sunk: #0f1110;
+
+  --ink: #e9eae7;
+  --ink-soft: #9a9f9d;
+  --ink-faint: #6e7370;
+
+  --line: #2c2f2e;
+  --line-strong: #3a3e3c;
+
+  --accent: #5fc0a4;
+  --accent-ink: #8ad6bf;
+  --accent-soft: #1c2e29;
+
+  --s-idea: #d9a441;
+  --s-active: #6fa8e8;
+  --s-blocked: #e2766a;
+  --s-done: #63b87c;
+  --s-paused: #8d9491;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  --shadow-lift: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root[data-theme="system"] {
     --bg: #131414;
     --surface: #1b1d1c;
     --surface-2: #212423;
@@ -270,6 +310,44 @@ a:hover {
   top: 0;
   height: 100vh;
   overflow-y: auto;
+  /* A column so the footer can sit at the bottom rather than under the last project. */
+  display: flex;
+  flex-direction: column;
+}
+
+/* `margin-top: auto` rather than absolute positioning, so a long project list scrolls the
+   footer with it instead of covering it. */
+.rail-foot {
+  margin-top: auto;
+  padding: var(--space-3) var(--space-4) 0;
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--ctl-md);
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.theme-toggle:hover {
+  background: var(--surface);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.theme-icon {
+  flex: none;
+  opacity: 0.8;
 }
 
 .rail-brand {

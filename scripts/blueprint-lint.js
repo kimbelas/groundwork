@@ -240,6 +240,7 @@ const TAP_NAMES = [
   "\\.criteria",
   "\\.proposal-row",
   "\\.palette-item",
+  "\\.theme-toggle",
   "\\.panel-close",
   "\\.icon-btn",
 ];

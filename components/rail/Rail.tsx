@@ -1,15 +1,23 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 import { listProjects } from "@/lib/vault";
 
 /**
  * The vault tree. A server component so the first paint needs no client fetch —
  * adding a folder to vault/ by hand makes it appear here on refresh, with no other
  * action required.
+ *
+ * `ThemeToggle` is a client leaf inside it, which is the pattern that keeps this component
+ * on the server: the interactive part is the only thing that ships to the browser, and the
+ * project list stays a plain server render.
  */
 export async function Rail() {
   const entries = await listProjects();
   const visible = entries.filter((e) => !e.ok || e.summary.meta.stage !== "archived");
+  const theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
 
   return (
     <nav className="rail" aria-label="Vault">
@@ -55,6 +63,10 @@ export async function Rail() {
           ))}
         </ul>
       )}
+
+      <div className="rail-foot">
+        <ThemeToggle initial={theme} />
+      </div>
     </nav>
   );
 }

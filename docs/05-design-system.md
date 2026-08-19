@@ -97,6 +97,29 @@ notices for a week.
 declared in another file. The floors accept `rem` so a stray one cannot slip under them
 unnoticed — a safety net, not an invitation.
 
+## Theme
+
+Three states — **light, dark, system** — and **light is the default**. The app used to
+follow `prefers-color-scheme` with no way to override it, so anyone with a dark desktop got a
+dark planning tool they never chose. Following the OS is now one of three options rather than
+the fallback.
+
+The choice lives in a `gw.theme` cookie and the root element always carries `data-theme`,
+**written server-side in the root layout**. That placement is the design, not an
+implementation detail: this value decides which palette the *first paint* uses, and reading
+it on the client instead makes every navigation paint light and then flip. `localStorage` is
+unreadable until after hydration, which is exactly the wrong time.
+
+The CSS follows from that: light on bare `:root`, dark under `:root[data-theme="dark"]`, and
+dark again under `:root[data-theme="system"]` inside the media query. **The dark palette is
+therefore written twice**, because CSS cannot put a media condition inside a selector list.
+An e2e case asserts an explicit dark and a system dark compute to the same background, which
+is the only thing stopping the two copies drifting apart.
+
+`ThemeToggle` writes the DOM attribute first, the cookie second, React state third. In that
+order the palette switches even if hydration is still in flight, and no server round trip is
+needed for something this small.
+
 ## Type
 
 | Role | Face | Size |

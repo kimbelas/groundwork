@@ -258,20 +258,102 @@ test.describe("typography", () => {
   });
 });
 
-test.describe("dark mode", () => {
-  // Named for what it asserts: a real painted ground, and no purple. It never checked
-  // warmth, despite saying so for two design revisions.
-  test("paints a real background and no purple", async ({ browser }) => {
-    const context = await browser.newContext({ colorScheme: "dark" });
-    const page = await context.newPage();
-    await page.goto("/");
-    await expect(page.getByRole("table")).toBeVisible();
+/**
+ * Theme.
+ *
+ * These used to be one test that opened a `colorScheme: "dark"` context and checked the
+ * background was painted. That test would now **pass while measuring the light palette** —
+ * light is the default and following the OS is opt-in, so a dark browser preference alone
+ * no longer produces a dark app. An assertion that cannot fail is worse than no assertion,
+ * because it reads as coverage.
+ *
+ * So each case states which of the three states it is in, and one of them exists purely to
+ * prove the default ignores the OS.
+ */
+const THEME_COOKIE = "gw.theme";
 
-    const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+async function pageWithTheme(
+  browser: import("@playwright/test").Browser,
+  opts: { theme?: string; prefers?: "dark" | "light" } = {},
+) {
+  const context = await browser.newContext({ colorScheme: opts.prefers ?? "light" });
+  if (opts.theme) {
+    await context.addCookies([
+      { name: THEME_COOKIE, value: opts.theme, url: "http://127.0.0.1:4849" },
+    ]);
+  }
+  const page = await context.newPage();
+  await page.goto("/");
+  await expect(page.getByRole("table")).toBeVisible();
+  return { context, page };
+}
+
+const bodyBackground = (page: import("@playwright/test").Page) =>
+  page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+test.describe("theme", () => {
+  test("a dark OS alone does not darken the app", async ({ browser }) => {
+    // The reason the default exists. Anyone with a dark desktop used to get a dark planning
+    // tool they never asked for, with no way to say otherwise.
+    const { context, page } = await pageWithTheme(browser, { prefers: "dark" });
+    const light = await pageWithTheme(browser, { theme: "light", prefers: "light" });
+
+    expect(await bodyBackground(page)).toBe(await bodyBackground(light.page));
+    await context.close();
+    await light.context.close();
+  });
+
+  test("an explicit dark choice paints dark and stays clear of purple", async ({ browser }) => {
+    const { context, page } = await pageWithTheme(browser, { theme: "dark", prefers: "light" });
+
+    const bg = await bodyBackground(page);
     expect(bg).not.toBe("rgba(0, 0, 0, 0)");
     expect(bg).not.toBe("rgb(0, 0, 0)");
 
+    const light = await pageWithTheme(browser, { theme: "light" });
+    expect(bg).not.toBe(await bodyBackground(light.page));
+
     expect(await collectViolations(page, "purple")).toEqual([]);
+    await context.close();
+    await light.context.close();
+  });
+
+  test("choosing system follows the OS in both directions", async ({ browser }) => {
+    const dark = await pageWithTheme(browser, { theme: "system", prefers: "dark" });
+    const light = await pageWithTheme(browser, { theme: "system", prefers: "light" });
+
+    expect(await bodyBackground(dark.page)).not.toBe(await bodyBackground(light.page));
+    await dark.context.close();
+    await light.context.close();
+  });
+
+  test("the two dark blocks have not drifted apart", async ({ browser }) => {
+    // CSS cannot put a media condition inside a selector list, so the dark palette is
+    // written twice — once for the explicit choice, once inside the media query for
+    // "system". Nothing but this stops the two copies diverging.
+    const explicit = await pageWithTheme(browser, { theme: "dark", prefers: "light" });
+    const viaSystem = await pageWithTheme(browser, { theme: "system", prefers: "dark" });
+
+    expect(await bodyBackground(explicit.page)).toBe(await bodyBackground(viaSystem.page));
+    await explicit.context.close();
+    await viaSystem.context.close();
+  });
+
+  test("the toggle changes the palette and survives a reload", async ({ browser }) => {
+    const { context, page } = await pageWithTheme(browser);
+    const before = await bodyBackground(page);
+
+    await page.getByTestId("theme-toggle").click();
+    await expect(page.getByTestId("theme-toggle")).toHaveAttribute("data-theme-value", "dark");
+    expect(await bodyBackground(page)).not.toBe(before);
+
+    // The cookie is what makes the *first paint* after a reload correct, which is the whole
+    // reason this is not localStorage.
+    await page.reload();
+    await expect(page.getByRole("table")).toBeVisible();
+    await expect(page.getByTestId("theme-toggle")).toHaveAttribute("data-theme-value", "dark");
+    expect(await bodyBackground(page)).not.toBe(before);
+
     await context.close();
   });
 });
