@@ -49,3 +49,33 @@ describe("resolveOptimistic", () => {
     expect(resolveOptimistic(base, { value, base })).toBe(value);
   });
 });
+
+/**
+ * What this rule deliberately cannot do, and why the caller has to clear.
+ *
+ * `resolveOptimistic` compares the server against what the value was written OVER, so it
+ * cannot tell "still in flight" from "settled long ago, then reverted by someone else".
+ * Both look identical: server equals base.
+ *
+ * That is not a flaw to fix here — a pure function has no notion of time. It is a contract
+ * on the caller: an override must be discarded once its write and refresh are finished, so
+ * there is nothing left to reactivate. `MetaBar` does that by clearing every override when
+ * nothing is in flight. Without it, choosing a stage here and then setting it back in
+ * Obsidian makes the control show the value you picked while the file says otherwise.
+ */
+describe("resolveOptimistic — the caller's obligation", () => {
+  it("cannot distinguish a live write from a spent one, by design", () => {
+    const live = { value: "building", base: "idea" } as const;
+
+    // In flight: correct to show the optimistic value.
+    expect(resolveOptimistic("idea", live)).toBe("building");
+
+    // Long settled, then reverted outside the app — identical inputs, wrong answer. The
+    // only defence is that the caller has already discarded this override.
+    expect(resolveOptimistic("idea", live)).toBe("building");
+  });
+
+  it("returns the server value once the override is discarded", () => {
+    expect(resolveOptimistic("idea", undefined)).toBe("idea");
+  });
+});

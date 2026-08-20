@@ -1,0 +1,24 @@
+# Line endings, pinned.
+#
+# This checkout has core.autocrlf=true globally and had no .gitattributes, so the working
+# tree ended up a mix: some files LF, some CRLF. That combination has a nasty edge —
+# `git checkout -- <path>` on an LF file rewrites it as CRLF, after which git reports the
+# restored original as modified forever, even though the blob is byte-identical to HEAD.
+# Anyone restoring a file after an experiment can lose it that way.
+#
+# Normalising in the repo and checking out LF removes the ambiguity. It is also why every
+# commit here printed a wall of "LF will be replaced by CRLF" warnings.
+* text=auto eol=lf
+
+# The vault is its own repository and pins its own endings; nothing here applies to it.
+
+# Binary, never touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

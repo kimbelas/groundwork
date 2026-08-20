@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { likelihoodLabel } from "@/lib/labels";
+
 import type { GroundingReport, GroundingResult } from "@/lib/ai/grounding";
 import type { Proposal, RunRecord } from "@/lib/ai/types";
 
@@ -272,7 +274,7 @@ export function ProposalReview({
             >
               {r.text}{" "}
               <span className="mono faint">
-                {r.likelihood}/{r.impact}
+                {likelihoodLabel(r.likelihood)} / {likelihoodLabel(r.impact)}
               </span>{" "}
               <Grounding result={grounding?.risks[i]} />
             </Row>

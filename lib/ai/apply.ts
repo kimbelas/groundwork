@@ -14,6 +14,7 @@ import {
   writeAuxData,
   writeCardBody,
 } from "@/lib/vault";
+import { DEFAULT_COLUMNS } from "@/lib/schema";
 
 import type { Proposal } from "./types";
 
@@ -125,7 +126,10 @@ export async function applyProposal(
     if (item.op === "create") {
       const card = await createCardFrom(slug, {
         title: item.title,
-        column: item.column ?? project.meta.columns[0] ?? "Intake",
+        // columns is .min(1) in the schema, so [0] is always defined. The second
+        // fallback only satisfies noUncheckedIndexedAccess and is unreachable - it named a
+        // column the app no longer creates, which read like a real default.
+        column: item.column ?? project.meta.columns[0] ?? DEFAULT_COLUMNS[0],
         phase: item.phase ?? null,
         priority: item.priority,
         size: item.size,

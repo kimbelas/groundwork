@@ -53,22 +53,43 @@ export function MetaBar({ meta }: { meta: ProjectMeta }) {
     return resolveOptimistic(meta[key], pending[key]);
   }
 
+  const drop = <K extends keyof Editable>(key: K) =>
+    setPending((p) => {
+      const { [key]: _dropped, ...rest } = p;
+      return rest as Pending;
+    });
+
   async function apply<K extends keyof Editable>(key: K, next: Editable[K]) {
     setPending((p) => ({ ...p, [key]: { value: next, base: meta[key] } }));
     setError(null);
 
     try {
       await doc.writeMeta({ [key]: next });
-      // Refresh so the dashboard, rail and any derived counts pick the change up. The
-      // override keeps the control steady until that lands, then expires on its own.
-      startTransition(() => router.refresh());
+
+      /**
+       * Retire the override and refresh in the same transition.
+       *
+       * An override that outlives its write is not harmless. The rule compares the server
+       * against what the value was written *over*, so a spent entry reactivates the moment
+       * the server returns to that base — set a stage here, then set it back in Obsidian,
+       * and the control confidently shows the value you picked while the file says
+       * otherwise. That is the failure `lib/optimistic.ts` exists to prevent, reached from
+       * the other side.
+       *
+       * Both updates go inside the transition so they commit together: React holds the old
+       * UI until the refresh resolves, so the control never flashes back to the previous
+       * value in the gap between clearing and the new data arriving. Clearing it in an
+       * effect keyed on "nothing in flight" would work too, and `react-hooks` rejects it —
+       * correctly, since that is the cascading-render pattern this codebase already bans.
+       */
+      startTransition(() => {
+        drop(key);
+        router.refresh();
+      });
     } catch (e) {
       // Drop the override rather than reverting to a remembered value: whatever the server
       // holds now is the truth, and it may not be what was there when this started.
-      setPending((p) => {
-        const { [key]: _dropped, ...rest } = p;
-        return rest as Pending;
-      });
+      drop(key);
       setError((e as Error).message);
     }
   }

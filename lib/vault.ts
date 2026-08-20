@@ -1132,7 +1132,8 @@ export async function createCardFrom(
   const project = await getProject(slug);
   const column = project.meta.columns.includes(input.column)
     ? input.column
-    : (project.meta.columns[0] ?? "Intake");
+    : // Unreachable: columns is .min(1). See the note in lib/ai/apply.ts.
+      (project.meta.columns[0] ?? DEFAULT_COLUMNS[0]);
 
   const id = await nextCardId(slug);
   const name = assertCardFilename(cardFilename(id, slugify(input.title) || `card-${id}`));

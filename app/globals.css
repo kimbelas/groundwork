@@ -423,8 +423,14 @@ a:hover {
   /*
    * Now redundant for anything routed through lib/labels.ts, which carries its own
    * casing. It survives for the two chips still passing a bare word (validated /
-   * unvalidated). Do not rely on it for a new value, and note it would mangle a label
-   * with deliberate capitalisation - it renders "SaaS MVP" as "Saas Mvp".
+   * unvalidated).
+   *
+   * The hazard is real but the opposite way round to what was written here before:
+   * capitalize titlecases the first letter of each word and never lowercases, so
+   * "SaaS MVP" survives intact. What it mangles is a label whose later words are
+   * deliberately lower case - "Internal tool" renders as "Internal Tool". Those are the
+   * archetype labels exactly, and the shell rebuild plans an archetype chip, so remove
+   * this rather than route one through it.
    */
   text-transform: capitalize;
   white-space: nowrap;
