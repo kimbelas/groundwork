@@ -3,6 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { Drawer } from "@/components/ui/Drawer";
+import { Input } from "@/components/ui/Input";
+import { Notice } from "@/components/ui/Notice";
 import { archetypeLabel } from "@/lib/labels";
 import { ARCHETYPES } from "@/lib/schema";
 import { isValidSlug, slugify } from "@/lib/slug";
@@ -15,11 +19,20 @@ const ARCHETYPE_HELP: Record<(typeof ARCHETYPES)[number], string> = {
 };
 
 /**
- * Create a project.
+ * Create a project, in a drawer.
  *
- * The slug is shown before submitting, because it becomes the folder name in the vault
- * and is immutable afterwards — discovering it only after the fact would mean renaming
- * a directory by hand to fix a typo.
+ * It used to REPLACE its own trigger button with an inline form, so the form appeared
+ * wherever the button had been - floating at the top-right of the header, detached from
+ * the list it was about to add to, with the trigger gone so there was nothing to return
+ * focus to on cancel.
+ *
+ * A drawer instead of a modal because the list of existing projects stays readable behind
+ * it, which is exactly the context you want while naming a new one: it is how you notice
+ * you already have a "Portal Rebuild".
+ *
+ * The slug is shown before submitting, because it becomes the folder name in the vault and
+ * is immutable afterwards — discovering it only after the fact would mean renaming a
+ * directory by hand to fix a typo.
  */
 export function NewProject() {
   const router = useRouter();
@@ -62,82 +75,77 @@ export function NewProject() {
     }
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className="button button-primary"
-        onClick={() => setOpen(true)}
-        data-testid="new-project"
-      >
-        New project
-      </button>
-    );
+  function close() {
+    setOpen(false);
+    setError(null);
   }
 
   return (
-    <form onSubmit={submit} className="raised decision-form" data-testid="new-project-form">
-      <label className="stack" style={{ gap: 6 }}>
-        <span className="label">Project name</span>
-        <input
-          className="input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Tenant Portal Rebuild"
-          aria-label="Project name"
-          autoFocus
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setOpen(false);
-          }}
-        />
-        {slug && (
-          <span className="body-sm faint" data-testid="slug-preview">
-            Folder: <code className="mono">vault/{slug}</code>
-          </span>
-        )}
-      </label>
+    <>
+      {/*
+        The trigger stays mounted while the drawer is open. It is what focus returns to on
+        close, and unmounting it - which is what this component used to do - leaves a
+        keyboard user at the top of the document with no idea where they were.
+      */}
+      <Button variant="primary" onClick={() => setOpen(true)} data-testid="new-project">
+        New project
+      </Button>
 
-      <label className="stack" style={{ gap: 6 }}>
-        <span className="label">Kind of project</span>
-        <select
-          className="select"
-          value={archetype}
-          onChange={(e) => setArchetype(e.target.value as (typeof ARCHETYPES)[number])}
-          aria-label="Kind of project"
-          style={{ width: "100%" }}
-        >
-          {/* Value stays the stored code; only the text is a word. */}
-          {ARCHETYPES.map((a) => (
-            <option key={a} value={a}>
-              {archetypeLabel(a)}
-            </option>
-          ))}
-        </select>
-        <span className="body-sm faint">{ARCHETYPE_HELP[archetype]}</span>
-      </label>
+      {open && (
+        <Drawer title="New project" onClose={close} testId="new-project-form">
+          <form onSubmit={submit} className="stack-form" id="new-project-fields">
+            <label className="field">
+              <span className="label">Project name</span>
+              <Input
+                label="Project name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Tenant Portal Rebuild"
+                autoFocus
+              />
+              {slug && (
+                <span className="body-sm faint" data-testid="slug-preview">
+                  Folder: <code className="mono">vault/{slug}</code>
+                </span>
+              )}
+            </label>
 
-      {error && (
-        <div className="notice body-sm" role="alert" data-testid="new-project-error">
-          {error}
-        </div>
+            <label className="field">
+              <span className="label">Kind of project</span>
+              <select
+                className="select field-control"
+                value={archetype}
+                onChange={(e) => setArchetype(e.target.value as (typeof ARCHETYPES)[number])}
+                aria-label="Kind of project"
+              >
+                {/* Value stays the stored code; only the text is a word. */}
+                {ARCHETYPES.map((a) => (
+                  <option key={a} value={a}>
+                    {archetypeLabel(a)}
+                  </option>
+                ))}
+              </select>
+              <span className="body-sm faint">{ARCHETYPE_HELP[archetype]}</span>
+            </label>
+
+            {error && <Notice data-testid="new-project-error">{error}</Notice>}
+          </form>
+
+          <div className="drawer-foot-inline">
+            <Button
+              variant="primary"
+              type="submit"
+              form="new-project-fields"
+              disabled={busy || !slugOk}
+            >
+              {busy ? "Creating…" : "Create project"}
+            </Button>
+            <Button variant="quiet" disabled={busy} onClick={close}>
+              Cancel
+            </Button>
+          </div>
+        </Drawer>
       )}
-
-      <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
-        <button type="submit" className="button button-primary" disabled={busy || !slugOk}>
-          {busy ? "Creating..." : "Create project"}
-        </button>
-        <button
-          type="button"
-          className="link-button"
-          disabled={busy}
-          onClick={() => {
-            setOpen(false);
-            setError(null);
-          }}
-        >
-          cancel
-        </button>
-      </div>
-    </form>
+    </>
   );
 }

@@ -828,6 +828,166 @@ input[type="checkbox"] {
   color: var(--s-idea);
 }
 
+/* A stack of labelled fields, the shape every drawer form takes. */
+.stack-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A select inside a field fills it; a fixed width would leave a ragged right edge. */
+.field-control,
+.field .input,
+.field .select {
+  width: 100%;
+}
+
+/*
+ * Actions that belong to a form rendered in the drawer BODY.
+ *
+ * `drawer-foot` is the pinned bar the Drawer itself renders. This is for a caller that
+ * wants its actions to scroll with the content instead - a short form where pinning would
+ * leave a bar floating over empty space.
+ */
+.drawer-foot-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+/* ------------------------------------------------------- drawer & confirm */
+
+/*
+ * A drawer is where you work; a modal is where you decide.
+ *
+ * The drawer deliberately has no backdrop. The board behind it stays visible AND
+ * clickable - selecting a different card swaps the drawer, which is the whole reason a
+ * card panel is a drawer and not a modal. A scrim would say the opposite.
+ */
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+
+  display: flex;
+  flex-direction: column;
+  width: min(480px, 100vw);
+
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+/* Respects a reduced-motion preference by simply not moving. */
+@media (prefers-reduced-motion: no-preference) {
+  .drawer {
+    animation: drawer-in 160ms ease-out;
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+}
+
+.drawer:focus {
+  outline: none;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--line);
+}
+
+.drawer-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: var(--lead-tight);
+  margin: 0;
+}
+
+/* The body scrolls, the header and footer do not - so Close and the actions stay put. */
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+
+.drawer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--line);
+}
+
+/* Full width on a phone: 480px of drawer on a 390px screen is a modal with extra steps. */
+@media (max-width: 620px) {
+  .drawer {
+    width: 100vw;
+    border-left: none;
+  }
+}
+
+/*
+ * The confirmation. Blocks, because there is nothing behind it worth clicking, and it is
+ * asking about something that is usually hard to undo.
+ */
+.confirm {
+  width: min(420px, calc(100vw - var(--space-6)));
+  padding: var(--space-5);
+
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+
+/* A dialog in the top layer is not inside the themed tree, so it paints its own ground. */
+.confirm::backdrop {
+  background: rgb(0 0 0 / 0.32);
+}
+
+.confirm-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: var(--lead-tight);
+  margin: 0 0 var(--space-2);
+}
+
+.confirm-body {
+  color: var(--ink-soft);
+  line-height: var(--lead-body);
+  margin-bottom: var(--space-5);
+}
+
+.confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 /* ---------------------------------------------------------------- editor */
 
 .editor-frame {
@@ -1037,22 +1197,11 @@ input[type="checkbox"] {
 
 /* ---------------------------------------------------------------- card detail */
 
-.detail {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
-  padding: 22px 24px 26px;
-  max-width: 520px;
-}
-
-.detail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
+/*
+ * `.detail` and `.detail-head` are gone: the card panel is a Drawer now, which owns its own
+ * surface, border and header. What is left here is the layout INSIDE that panel, which the
+ * drawer knows nothing about.
+ */
 
 .detail-grid {
   display: flex;
@@ -1472,10 +1621,6 @@ textarea.input {
   }
   .board {
     overflow-x: visible;
-  }
-
-  .detail {
-    max-width: none;
   }
 
   .tabs {

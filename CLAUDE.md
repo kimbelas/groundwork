@@ -90,6 +90,23 @@ and this paragraph has itself been stale once, which is the point.
   saturation, so a new accent must sit below 240 or above 300; Graphite's is around 166 and
   its `--s-active` around 214. **No Tailwind cool-grey utility classes** (`slate`, `zinc`,
   `gray`); that rule bans the class names, and the app uses no Tailwind utilities at all.
+- **A drawer is where you work; a modal is where you decide.** Editing a card, naming a
+  new project, connecting a repo — all use `components/ui/Drawer.tsx`, which slides in from
+  the right and deliberately does NOT block: clicking a different card swaps the drawer,
+  because the thing you are editing only makes sense next to its neighbours. A destructive
+  or irreversible question uses `components/ui/ConfirmDialog.tsx`, which is a native
+  `<dialog>` opened with `showModal()` and blocks properly. No `window.confirm` — it cannot
+  say where a file goes, and a prompt that cannot explain itself gets clicked through.
+- **Escape goes through `lib/dismiss.ts`, never a `window` listener.** One listener, a stack
+  of layers, and only the top one is dismissed. Binding your own is how a confirmation over
+  a drawer closed both — the user cancelled one thing and lost two. `stopPropagation` does
+  not help, because both handlers sit on the same target. This is the fourth bug of that
+  shape in this codebase.
+- **A drawer returns focus to whatever opened it**, captured on the FIRST render via a lazy
+  `useState` initializer. Reading `document.activeElement` in an effect is too late: effects
+  run child-first, so a field marked `autoFocus` has already taken focus and gets recorded
+  as the opener — then closing restores focus to a detached node, which is the same as
+  losing it.
 - **No emoji in UI chrome.** Use a status chip or an inline SVG.
 - **Words on screen, codes in files.** Display "High" and "80% sure" via `lib/labels.ts`;
   the vault keeps `P1` and `0.8` because a person hand-edits those files.

@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { EnhanceCard } from "@/components/ai/EnhanceCard";
+import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Drawer } from "@/components/ui/Drawer";
 import { parseChecklist, toggleChecklistItem } from "@/lib/checklist";
 import { confidenceChoices, confidenceLabel, priorityLabel, sizeLabel } from "@/lib/labels";
 import { phaseChoices, phaseName } from "@/lib/phases";
@@ -17,8 +20,15 @@ interface FullCard extends CardMeta {
 }
 
 /**
- * Card detail, docked beside the board rather than floating over it — you keep the
- * column context while editing, which a modal takes away.
+ * Card detail, in a drawer.
+ *
+ * A drawer and not a modal, because the board behind it stays visible AND clickable: a
+ * card only makes sense next to its column, and clicking a different card should swap the
+ * panel rather than be swallowed by a scrim. It used to be docked in the layout, which
+ * kept the context but shrank the board to make room on every screen it opened on.
+ *
+ * The one thing here that IS modal is moving a card to the trash - a decision, about
+ * something the user has to go to the vault to undo. `ConfirmDialog` blocks properly.
  *
  * Loads the body on open instead of shipping every card's prose down with the board.
  */
@@ -44,6 +54,8 @@ export function CardDetail({
   const [full, setFull] = useState<FullCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmTrash, setConfirmTrash] = useState(false);
+  const [trashing, setTrashing] = useState(false);
 
   /**
    * Loading state is reset by remounting — Board keys this component on the card id —
@@ -73,14 +85,6 @@ export function CardDetail({
       cancelled = true;
     };
   }, [slug, cardId]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const request = useCallback(
     async (payload: Record<string, unknown>) => {
@@ -152,7 +156,7 @@ export function CardDetail({
 
   async function trash() {
     if (!full) return;
-    if (!window.confirm(`Move "${full.title}" to the trash folder?`)) return;
+    setTrashing(true);
 
     try {
       const res = await fetch("/api/cards", {
@@ -164,25 +168,26 @@ export function CardDetail({
       onClose();
       onChanged();
     } catch (e) {
+      // Close the confirmation but not the drawer: the error belongs where the user can
+      // read it, and a pane that vanishes takes its own explanation with it.
+      setConfirmTrash(false);
       setError((e as Error).message);
+    } finally {
+      setTrashing(false);
     }
   }
 
   const items = full ? parseChecklist(full.body) : [];
 
   return (
-    <aside className="detail" aria-label="Card detail" data-testid="card-detail">
-      <header className="detail-head">
-        <span className="mono faint">#{cardId}</span>
-        <button type="button" className="link-button mono" onClick={onClose} aria-label="Close">
-          close
-        </button>
-      </header>
-
-      <h2 className="display-sm" style={{ margin: "0 0 12px" }}>
-        {full?.title ?? title}
-      </h2>
-
+    <>
+      <Drawer
+        // The id is in the title because it is how a card is referred to everywhere else -
+        // in a commit message, in a proposal, in the vault's filenames.
+        title={`#${cardId} · ${full?.title ?? title}`}
+        onClose={onClose}
+        testId="card-detail"
+      >
       {error && (
         <div className="notice body-sm" role="alert" data-testid="detail-error">
           {error}
@@ -331,16 +336,34 @@ export function CardDetail({
 
           <hr className="rule" style={{ marginTop: 18 }} />
 
-          <button
-            type="button"
-            className="link-button mono"
-            style={{ marginTop: 12, color: "var(--s-blocked)" }}
-            onClick={() => void trash()}
-          >
-            move to trash
-          </button>
+          <div style={{ marginTop: 12 }}>
+            <Button variant="quiet" danger onClick={() => setConfirmTrash(true)}>
+              Move to trash
+            </Button>
+          </div>
         </>
       )}
-    </aside>
+      </Drawer>
+
+      {confirmTrash && full && (
+        <ConfirmDialog
+          title="Move this card to the trash?"
+          body={
+            <>
+              <strong>{full.title}</strong> moves to the project&rsquo;s <code>.trash</code>{" "}
+              folder. Nothing is deleted - the file is still there, and the vault&rsquo;s git
+              history has it either way - but the app stops showing it and it leaves the
+              board.
+            </>
+          }
+          confirmLabel="Move to trash"
+          danger
+          busy={trashing}
+          onConfirm={() => void trash()}
+          onCancel={() => setConfirmTrash(false)}
+          testId="confirm-trash"
+        />
+      )}
+    </>
   );
 }

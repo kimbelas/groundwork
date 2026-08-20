@@ -348,8 +348,11 @@ test("revert returns every touched file to its prior bytes", async ({ page }) =>
   await expect(page.getByTestId("apply-result")).toBeVisible({ timeout: 20_000 });
   expect(await thetaCardFiles()).toHaveLength(3);
 
-  page.once("dialog", (d) => void d.accept());
   await page.getByTestId("revert").click();
+
+  const confirm = page.getByTestId("confirm-revert");
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "Undo it" }).click();
   await expect(page.getByTestId("revert-result")).toBeVisible({ timeout: 20_000 });
 
   // Byte-for-byte, not merely equivalent.

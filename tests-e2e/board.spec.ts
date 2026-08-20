@@ -264,8 +264,14 @@ test("deleting a card moves it to .trash rather than unlinking", async ({ page }
   await page.goto(`/p/${SLUG}/board`);
   await page.getByTestId("card-2").click();
 
-  page.once("dialog", (d) => void d.accept());
-  await page.getByRole("button", { name: "move to trash" }).click();
+  await page.getByRole("button", { name: "Move to trash" }).click();
+
+  // The confirmation is a real dialog now, so the question it asks can be read - and a test
+  // can check the user was told where the file goes rather than only that a prompt appeared.
+  const confirm = page.getByTestId("confirm-trash");
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText(".trash");
+  await confirm.getByRole("button", { name: "Move to trash" }).click();
 
   await expect(async () => {
     expect(await fsp.readdir(CARDS)).not.toContain("0002-bravo.md");
