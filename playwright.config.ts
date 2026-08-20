@@ -68,6 +68,9 @@ export default defineConfig({
       GROUNDWORK_DIST_DIR: ".next-e2e",
       // Run artefacts stay out of the real .groundwork directory.
       GROUNDWORK_RUNS: path.resolve(import.meta.dirname, ".groundwork-e2e/runs"),
+      // Likewise the repo index, so a suite run never touches - or invalidates - the index
+      // built for the developer's own projects.
+      GROUNDWORK_INDEX: path.resolve(import.meta.dirname, ".groundwork-e2e/index"),
       /*
        * The deterministic engine. Exercising diff review against a real model would be
        * slow, cost tokens and produce different output every run — none of which tests

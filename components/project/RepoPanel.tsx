@@ -2,6 +2,7 @@ import { Chip } from "@/components/ui/Chip";
 import { describeRepo } from "@/lib/repo";
 import type { ProjectMeta } from "@/lib/schema";
 
+import { IndexPanel } from "./IndexPanel";
 import { RepoConnect } from "./RepoConnect";
 
 /**
@@ -62,6 +63,13 @@ export async function RepoPanel({ meta }: { meta: ProjectMeta }) {
       )}
 
       <RepoConnect connected={status?.path ?? null} />
+
+      {/*
+        The index only appears once a repo exists to index. Showing the control before that
+        would be a button whose only possible outcome is an error, and the panel is already
+        the place that explains what connecting a repo is for.
+      */}
+      {status?.exists && <IndexPanel slug={meta.slug} />}
     </section>
   );
 }

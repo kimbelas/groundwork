@@ -28,6 +28,11 @@ const ALLOWED = new Set([
   // the exception is the header comment of the file itself; the short version is that
   // it is strictly weaker than lib/runs.ts, which is already allowed and writes.
   "lib/repo.ts",
+  // Owns .groundwork/index/ and never resolves inside vault/ - the same argument that
+  // allows lib/runs.ts. It is the ONLY file under lib/index/ that touches disk; the rest
+  // of that directory is pure, which is what lets the chunking and fusion rules be tested
+  // without a filesystem.
+  "lib/index/store.ts",
   "scripts/blueprint-lint.js",
   "scripts/fs-boundary.js",
   "playwright.config.ts",

@@ -44,6 +44,15 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
   preservation pass carries nothing and zod fills in defaults. One click replaced
   everything a user had typed with fabricated values. Both patch functions call
   `hasBrokenFrontmatter` and throw `invalid_document`; the file needs a human.
+- **The repo index is derived data and never authoritative.** It lives in
+  `.groundwork/index/` (git-ignored), is rebuildable from the repo, and anything wrong
+  with it is answered by rebuilding — so every read returns `null` rather than throwing.
+  The vault stays the only source of truth. Derived data never gets committed as prose.
+- **Retrieval quality is guarded by a number, not an opinion.** `tests/index-eval.test.ts`
+  gates keyword recall@5 and MRR over a fixed corpus; `pnpm eval:retrieval` loads the model
+  and prints keyword / semantic / hybrid side by side. Any change to chunking, tokenizing,
+  stopwords or fusion has to keep those numbers, because retrieval has no compile error —
+  it just gets quietly worse and shows up later as planning that cites the wrong file.
 - **Snapshot before every apply.** Copy each target file into
   `vault/<slug>/.snapshots/<ISO>/` first. Revert restores the newest snapshot.
 - **One AI run at a time**, enforced by a lock file.
@@ -204,6 +213,8 @@ and this paragraph has itself been stale once, which is the point.
 - Run: `pnpm dev` (or `groundwork.cmd`) → http://127.0.0.1:4848
 - Lint: `pnpm lint` · Typecheck: `pnpm typecheck`
 - Unit: `pnpm test` (vitest) · E2E: `pnpm test:e2e` (Playwright, port 4849)
+- Retrieval evals: `pnpm eval:retrieval` — needs the embedding model, so it is a script
+  rather than part of the suite. The keyword floors are gated in `pnpm test`.
 - E2E runs against `tests-e2e/fixture-vault`, never your real vault, via
   `GROUNDWORK_VAULT`. It also uses its own `GROUNDWORK_DIST_DIR` because Next 16
   refuses a second `next dev` per build directory — without that, having the app open

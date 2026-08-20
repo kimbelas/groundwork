@@ -70,6 +70,31 @@ export async function isRepo(cwd: string): Promise<boolean> {
  * hand-edits from other projects into the commit, which turns an audit trail into
  * noise — precisely the signal this is meant to provide.
  */
+/**
+ * The commit HEAD points at, or null when there is not one to read.
+ *
+ * Used as a fast path when deciding whether an index is stale, and never as the only
+ * check. A matching SHA proves nothing about the working tree: uncommitted edits are
+ * exactly the state a developer is in when they ask a question about their own code, and
+ * an index that trusted the SHA would answer about the committed version while looking
+ * perfectly fresh. Per-file content hashing is what actually decides.
+ *
+ * Null covers every "no answer" case — not a repo, no commits yet, git not installed —
+ * because the caller treats them all the same: fall through to hashing.
+ *
+ * Deliberately NOT `isRepo`-gated. This is asked of a connected repository, which is
+ * ordinarily the root of its own repo but may legitimately be a subdirectory of one; the
+ * toplevel comparison that protects the vault's separate history is the wrong test here.
+ */
+export async function headSha(cwd: string): Promise<string | null> {
+  try {
+    const sha = await git(cwd, ["rev-parse", "HEAD"]);
+    return sha.length > 0 ? sha : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function commitPaths(
   cwd: string,
   relPaths: string[],
