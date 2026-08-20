@@ -525,9 +525,25 @@ export async function writeBrief(
 }
 
 /** Rewrites project frontmatter. Body bytes are carried across untouched. */
+/**
+ * The fields a caller may patch on `project.md`.
+ *
+ * An allowlist rather than `Partial<ProjectMeta>`: `slug` is identity and `created` is
+ * history, and neither should be reachable through an ordinary edit.
+ *
+ * `repo` is the one field that can be *removed*, so it needs a third state the others do
+ * not have. `null` means disconnect; an absent key means leave it alone. `undefined` is
+ * treated as absent, matching how JS reads a missing property - it is filtered out below
+ * rather than merged, so a caller building a patch object programmatically cannot wipe
+ * the field by accident.
+ */
+export type ProjectMetaPatch = Partial<
+  Pick<ProjectMeta, "name" | "stage" | "health" | "archetype" | "columns">
+> & { repo?: string | null };
+
 export async function patchProjectMeta(
   slug: string,
-  patch: Partial<Pick<ProjectMeta, "name" | "stage" | "health" | "archetype" | "columns">>,
+  patch: ProjectMetaPatch,
   expectedMtimeMs?: number,
 ): Promise<{ mtimeMs: number; meta: ProjectMeta }> {
   assertSlug(slug);
@@ -543,12 +559,60 @@ export async function patchProjectMeta(
     throw new VaultError("invalid_document", `${PROJECT_FILE} is malformed: ${describeIssues(current.error)}`);
   }
 
-  const next = ProjectMetaSchema.safeParse({ ...current.data, ...patch, slug, updated: today() });
+  /*
+   * `undefined` in a patch means "not provided", never "clear it".
+   *
+   * Spreading it through would put a present-but-empty key into the merged object. That
+   * used to be unreachable because every patchable field was required or had a default,
+   * so zod filled it in; `repo` is the first optional one, and with it the spread became
+   * a way to delete a field by passing nothing.
+   */
+  const { repo, ...fields } = patch;
+  const provided = Object.fromEntries(
+    Object.entries(fields).filter(([, v]) => v !== undefined),
+  );
+
+  const merged: Record<string, unknown> = {
+    ...current.data,
+    ...provided,
+    slug,
+    updated: today(),
+  };
+
+  // Only `null` disconnects, and it does so by removing the key rather than writing an
+  // empty value - a `repo:` line with nothing after it would parse back as null and read
+  // like a broken setting rather than an absent one.
+  if (repo === null) delete merged.repo;
+  else if (repo !== undefined) merged.repo = repo;
+
+  const next = ProjectMetaSchema.safeParse(merged);
   if (!next.success) {
     throw new VaultError("invalid_document", describeIssues(next.error));
   }
 
-  const mtimeMs = await atomicWrite(file, replaceData(raw, next.data as Record<string, unknown>));
+  /*
+   * Carry across frontmatter keys the schema does not know about.
+   *
+   * A zod object strips unknown keys, so writing the parsed result straight out DELETES
+   * anything a person added by hand in Obsidian - a `tags:` line, an `aliases:`, a field
+   * from a plugin. The vault is meant to be editable outside this app, so discarding what
+   * someone wrote there is data loss, not tidiness.
+   *
+   * It is also why adding an optional field to the schema is not a free change: before
+   * `repo` existed, a write from an older build would have erased it. The schema is the
+   * allowlist for what this app manages; everything else belongs to the user.
+   *
+   * Unknown keys go last rather than back where they were. Known keys already come out in
+   * schema order - that is how zod builds the object - so interleaving would mean
+   * reordering the whole block on every write for no gain. Appending is stable after the
+   * first write and keeps the frontmatter readable.
+   */
+  const known = new Set(Object.keys(ProjectMetaSchema.shape));
+  const carried = Object.entries(readData(raw)).filter(([k]) => !known.has(k));
+  const out: Record<string, unknown> = { ...next.data };
+  for (const [k, v] of carried) out[k] = v;
+
+  const mtimeMs = await atomicWrite(file, replaceData(raw, out));
   invalidate(slug);
   return { mtimeMs, meta: next.data };
 }
@@ -872,7 +936,13 @@ export async function patchCardMeta(
     throw new VaultError("invalid_document", describeIssues(next.error));
   }
 
-  const mtimeMs = await atomicWrite(file, replaceData(raw, next.data as Record<string, unknown>));
+  const known = new Set(Object.keys(CardMetaSchema.shape));
+  const carried = Object.entries(readData(raw)).filter(([k]) => !known.has(k));
+  const out: Record<string, unknown> = { ...next.data };
+  for (const [k, v] of carried) out[k] = v;
+
+  // Same preservation rule as patchProjectMeta; the reasoning is documented there.
+  const mtimeMs = await atomicWrite(file, replaceData(raw, out));
   invalidate(slug);
   return { mtimeMs, meta: next.data };
 }

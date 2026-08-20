@@ -3,6 +3,7 @@ import { Backlinks } from "@/components/links/Backlinks";
 import { BriefEditor } from "@/components/editor/BriefEditor";
 import { MetaBar } from "@/components/project/MetaBar";
 import { ProjectDocProvider } from "@/components/project/ProjectDoc";
+import { RepoPanel } from "@/components/project/RepoPanel";
 import { listRuns } from "@/lib/runs";
 import { getProject } from "@/lib/vault";
 
@@ -20,6 +21,13 @@ export default async function BriefPage({ params }: { params: Promise<{ slug: st
     <ProjectDocProvider slug={slug} initialMtimeMs={project.mtimeMs}>
       <MetaBar meta={project.meta} />
       <BriefEditor initialBody={project.brief} />
+      {/*
+        Below the brief, above the AI panel, and that order is the argument: the brief says
+        what is intended, the repo is what exists, and synthesis reads both. Rendered as a
+        slot inside the provider because connecting writes project.md, which the editor and
+        the meta bar also write - one baseline for the file, per CLAUDE.md.
+      */}
+      <RepoPanel meta={project.meta} />
       <AiPanel
         slug={slug}
         briefEmpty={project.briefEmpty}

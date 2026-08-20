@@ -10,6 +10,14 @@ export interface MetaPatch {
   health?: (typeof HEALTHS)[number];
   archetype?: (typeof ARCHETYPES)[number];
   columns?: string[];
+  /**
+   * An absolute path to connect, or `null` to disconnect.
+   *
+   * `null` rather than omitting the key, because omitting it means "leave it alone" and
+   * there has to be a way to say "remove it". The server resolves the path it is given
+   * and stores the canonical form, so what comes back may not be the string sent.
+   */
+  repo?: string | null;
 }
 
 interface ProjectDocValue {

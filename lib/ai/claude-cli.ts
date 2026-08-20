@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { appendStdout, runPaths } from "@/lib/runs";
 
+import { assertInstructionScoped } from "./scope";
 import type { AiEngine } from "./engine";
 import type { AiEvent, AiJob } from "./types";
 
@@ -164,6 +165,17 @@ export const claudeCliEngine: AiEngine = {
     const outPath = relativeOut.startsWith("..") ? absoluteOut : relativeOut;
 
     const instruction = instructionFor(job, outPath);
+
+    /*
+     * Nothing outside the app root may be named to the run.
+     *
+     * A run's permissions are a denylist anchored at this directory, so a path outside it
+     * is not merely unlisted — it is unprotected, and `Write` is granted broadly. The one
+     * edit that would breach this is adding a connected repository's path to a prompt, so
+     * the rule is enforced here rather than remembered. `lib/ai/scope.ts` carries the full
+     * argument and the design that makes repo-grounded planning work without it.
+     */
+    assertInstructionScoped(instruction, cwd);
 
     return new Promise<void>((resolve, reject) => {
       const args = [

@@ -13,8 +13,26 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
   handlers, or anywhere else. Slug validation and path-traversal rejection live there
   and must not be bypassed. The single exception is `lib/runs.ts`, which owns
   `.groundwork/runs/` and never resolves a path inside `vault/` — that separation is
-  what lets the spawned CLI hold write access to one directory only. Do not add a
-  third exception without the same argument.
+  what lets the spawned CLI hold write access to one directory only.
+
+  **`lib/repo.ts` is the second exception**, granted on the same argument one step
+  weaker: it owns a third tree (a connected repository), never resolves inside
+  `vault/`, and never writes at all. Routing repo reads through `lib/vault.ts` would
+  keep the letter of the rule and lose its reasoning — that module's whole contract is
+  "every path is anchored at the vault root", and a function there that deliberately
+  resolves elsewhere would make containment depend on which function you called. The
+  read-only claim is enforced by a test, not a comment: `tests/repo.test.ts` fails if
+  any writing `fs` call appears in that file. Do not add a third exception without the
+  same argument.
+- **A spawned AI run is never told a path outside the app root.** Its permissions are
+  a **denylist** in `.claude/run-settings.json` whose globs are relative to that root,
+  and `--allowedTools` grants `Write` broadly because the CLI does not honour a
+  path-scoped *allow* rule. So a path outside the root is not merely unlisted, it is
+  unprotected. A connected repo lives outside it by definition, which is why the app
+  reads the repo itself through `lib/repo.ts` and puts the excerpts in the run
+  directory — the run never learns where the repo is. `assertInstructionScoped` in
+  `lib/ai/scope.ts` enforces this on every spawn, because the breach is a single
+  plausible edit: adding "the repo is at <path>" to a prompt.
 - **The AI never writes into `vault/`.** It writes a proposal JSON to
   `.groundwork/runs/<runId>/proposal.json`. The app validates it with zod, shows a
   diff, and applies it only on user accept — after snapshotting. Enforced by

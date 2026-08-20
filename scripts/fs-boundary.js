@@ -24,6 +24,10 @@ import path from "node:path";
 const ALLOWED = new Set([
   "lib/vault.ts",
   "lib/runs.ts",
+  // Read-only, owns a third tree, never resolves inside vault/. The full argument for
+  // the exception is the header comment of the file itself; the short version is that
+  // it is strictly weaker than lib/runs.ts, which is already allowed and writes.
+  "lib/repo.ts",
   "scripts/blueprint-lint.js",
   "scripts/fs-boundary.js",
   "playwright.config.ts",

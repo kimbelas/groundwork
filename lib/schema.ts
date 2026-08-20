@@ -54,6 +54,21 @@ export const ProjectMetaSchema = z.object({
   health: HealthSchema.default("green"),
   archetype: ArchetypeSchema.default("internal-tool"),
   columns: z.array(z.string().min(1)).min(1).default([...DEFAULT_COLUMNS]),
+  /**
+   * Absolute path to the connected repository, or absent.
+   *
+   * A repo is a property of a project, not an entity of its own: one optional
+   * frontmatter field, hand-editable like everything else in the vault. It is stored
+   * absolute because the vault and the repo are unrelated trees on disk and there is no
+   * meaningful base to be relative to.
+   *
+   * Only the shape is checked here. Whether the path exists, is a directory, and sits
+   * outside the vault is decided by `lib/repo.ts`, because those are questions about the
+   * filesystem and this module is pure. A path that was valid when connected can stop
+   * being valid at any time — the drive is unplugged, the directory is renamed — so the
+   * schema must keep parsing a stale value rather than making the project unreadable.
+   */
+  repo: z.string().min(1).optional(),
   created: IsoDate.optional(),
   updated: IsoDate.optional(),
 });

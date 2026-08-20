@@ -10,7 +10,14 @@ export type VaultErrorCode =
   | "not_found"
   | "conflict"
   | "already_exists"
-  | "invalid_document";
+  | "invalid_document"
+  /**
+   * A connected repository path that cannot be used: not absolute, missing, not a
+   * directory, or nested with the vault. Separate from `invalid_document` because the
+   * user can fix it by choosing a different directory, and separate from `not_found`
+   * because the project itself is fine — only its repo link is broken.
+   */
+  | "invalid_repo";
 
 const STATUS: Record<VaultErrorCode, number> = {
   invalid_slug: 400,
@@ -20,6 +27,7 @@ const STATUS: Record<VaultErrorCode, number> = {
   conflict: 409,
   already_exists: 409,
   invalid_document: 422,
+  invalid_repo: 400,
 };
 
 export class VaultError extends Error {

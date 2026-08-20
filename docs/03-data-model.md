@@ -30,6 +30,8 @@ Dotfolders inside a project are ignored by the indexer, so snapshots and trash n
 
 `gray-matter` — like every YAML round-tripper — re-serializes frontmatter on stringify: quoting shifts, comments vanish. So `lib/vault.ts` never parses and rewrites a whole file to change one half of it. A **body** edit splices the new body under the original frontmatter text, kept verbatim. A **frontmatter** edit re-serializes the frontmatter and leaves the body bytes alone. This is what makes "the half you didn't touch is byte-identical" a testable promise instead of a hope.
 
+A frontmatter edit also **carries across keys the schema does not know about**. A zod object strips unknown keys, so writing the parsed result straight back would delete a `tags:` line someone added in Obsidian, or a field a plugin maintains. The schema is the allowlist for what this app manages; everything else in the block belongs to the user and is preserved. Unknown keys are appended after the managed ones rather than interleaved, which is stable after the first write.
+
 ## `project.md`
 
 ```yaml
@@ -39,7 +41,8 @@ slug: portal-rebuild
 stage: shaping              # idea | shaping | building | paused | shipped | archived
 health: green               # green | amber | red
 archetype: client           # saas-mvp | internal-tool | client | research-spike
-columns: [Intake, Shaping, Build, Review, Done]
+columns: [Backlog, To do, In progress, In review, Done]
+repo: C:\work\portal            # optional; absolute path to the connected repository
 created: 2026-08-18
 updated: 2026-08-18
 ---
@@ -47,6 +50,21 @@ updated: 2026-08-18
 The client wants their portal rebuilt. Current one is a 2019 Angular app nobody
 maintains. They care most about the billing screens...
 ```
+
+### `repo` — the connected repository
+
+A repo is a **property of a project, not an entity of its own**. One optional frontmatter field, hand-editable like everything else. There is no repo registry, no lifecycle, no join table — which is what makes connecting one a change to a single line rather than a subsystem.
+
+It is stored **absolute**, because the vault and the repo are unrelated trees on disk with no meaningful common base. It is stored **resolved**: the app canonicalises the path and follows symlinks before writing it, so a later containment check compares like with like. A symlink can be repointed after the fact; a real path cannot.
+
+Rules, all enforced in `lib/repo.ts`:
+
+- The path must be absolute, must exist, and must be a directory.
+- It may not be inside `vault/`, and `vault/` may not be inside it. Either nesting would let repo-grounded planning quote the vault's own prose as though it were source code.
+- Access is **read-only**. Nothing in the app writes to a connected repo, and a test fails if any writing `fs` call appears in that module.
+- A path that has stopped being valid — renamed, deleted, unplugged — is **kept and reported**, never silently dropped. It records a decision the user made, and the fix is theirs.
+
+Removing the connection is a patch of `repo: null`, which deletes the key. Omitting it, or passing `undefined`, means "leave it alone".
 
 The body is the Brief. It is free-form and the app never restructures it — synthesis reads it and produces cards elsewhere. That separation is what makes the brief safe to write badly in.
 

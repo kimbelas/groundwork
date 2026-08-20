@@ -1,8 +1,16 @@
 import { z } from "zod";
 
 import { readJson, route } from "@/lib/http";
+import { validateRepoPath } from "@/lib/repo";
 import { ARCHETYPES, HEALTHS, STAGES } from "@/lib/schema";
-import { getProject, patchProjectMeta, renameColumn, setColumns, writeBrief } from "@/lib/vault";
+import {
+  getProject,
+  patchProjectMeta,
+  renameColumn,
+  setColumns,
+  vaultRoot,
+  writeBrief,
+} from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +41,16 @@ const MetaPatch = z.object({
       health: z.enum(HEALTHS).optional(),
       archetype: z.enum(ARCHETYPES).optional(),
       columns: z.array(z.string().min(1).max(60)).min(1).max(12).optional(),
+      /**
+       * Connect a repository, or `null` to disconnect.
+       *
+       * `nullable` rather than a second patch kind, because connecting is an edit to one
+       * frontmatter field and shares the precondition with every other edit to that file.
+       * Only the length is checked here — whether the directory exists and sits outside
+       * the vault is a filesystem question, answered by `validateRepoPath` below, and a
+       * zod refinement that hit the disk would make this schema untestable in isolation.
+       */
+      repo: z.string().min(1).max(4096).nullable().optional(),
     })
     .refine((p) => Object.keys(p).length > 0, "Patch must change at least one field"),
 });
@@ -86,7 +104,25 @@ export const PATCH = route<Ctx>(
       return Response.json({ moved });
     }
 
-    const { mtimeMs, meta } = await patchProjectMeta(slug, input.patch, input.expectedMtimeMs);
+    /*
+     * Canonicalise the repo path before it is stored, and refuse it if it is unusable.
+     *
+     * This happens here rather than in `lib/vault.ts` because it is the one field whose
+     * validity depends on a tree the vault layer knows nothing about. Storing the
+     * resolved real path — not the string the user typed — is what lets a later
+     * containment check compare like with like: a symlink can be repointed after the
+     * fact, and a path that was inside the repo when it was saved would then not be.
+     *
+     * `null` is passed straight through to mean disconnect. It is deliberately not
+     * validated: a repo that has been deleted must still be removable.
+     */
+    let patch = input.patch;
+    if (typeof patch.repo === "string") {
+      const info = await validateRepoPath(patch.repo, vaultRoot());
+      patch = { ...patch, repo: info.path };
+    }
+
+    const { mtimeMs, meta } = await patchProjectMeta(slug, patch, input.expectedMtimeMs);
     return Response.json({ mtimeMs, meta });
   },
   { mutating: true },

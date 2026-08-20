@@ -85,7 +85,22 @@ function serializeHead(data: Record<string, unknown>, eol: "\r\n" | "\n"): strin
   // otherwise leak into the caller's body and break the byte-identical promise.
   // Running the output back through our own splitter takes exactly the head and
   // nothing after it, whatever gray-matter decides to pad with.
-  const generated = matter.stringify("", data);
+  /*
+   * Drop keys whose value is `undefined` before handing the object to YAML.
+   *
+   * YAML has no representation for undefined, and js-yaml does not skip it - it throws
+   * `unacceptable kind of an object to dump`, which surfaces as a 500 with no useful
+   * message. An optional field is the trigger: `{...meta, ...patch}` where the patch
+   * carries `field: undefined` produces a present key with no value, and every writer
+   * that touches an optional field can reach it.
+   *
+   * Removing the key is the only sane reading. "This field has no value" and "this field
+   * is absent" are the same statement in frontmatter, and a caller that means something
+   * else has to say so - see how `repo` uses `null` for an explicit disconnect.
+   */
+  const defined = Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+
+  const generated = matter.stringify("", defined);
   const head = split(generated).head || generated;
   return eol === "\n" ? head : head.replace(/\r?\n/g, eol);
 }

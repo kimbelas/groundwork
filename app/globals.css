@@ -680,6 +680,86 @@ input[type="checkbox"] {
   gap: 10px;
 }
 
+/* ---------------------------------------------------------------- repo */
+
+/*
+ * The connected repository. Shaped like the meta bar - a bordered panel on --surface-2 -
+ * because it is the same kind of thing: a property of the project, stated once, edited
+ * in place. It is not a card and not a screen of its own.
+ */
+.repo-panel {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.repo-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.repo-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: var(--lead-tight);
+  margin: 0;
+}
+
+/*
+ * Mono, and allowed to wrap mid-path.
+ *
+ * A path gets compared character by character, which is what mono is for, and a long
+ * Windows path has no spaces to break at - without anywhere-wrapping it would push the
+ * panel wider than the page at 390px.
+ */
+.repo-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--lead-snug);
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+  margin: 0 0 var(--space-2);
+}
+
+.repo-note {
+  color: var(--ink-soft);
+  line-height: var(--lead-body);
+  margin: 0 0 var(--space-4);
+  max-width: 62ch;
+}
+
+.repo-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Takes the row, then gives it up rather than shrinking below a usable width. */
+.repo-input {
+  flex: 1 1 22ch;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.repo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* An error takes its own row in either layout, the same rule .metabar-error follows. */
+.repo-error {
+  flex-basis: 100%;
+}
+
 /* ---------------------------------------------------------------- editor */
 
 .editor-frame {
