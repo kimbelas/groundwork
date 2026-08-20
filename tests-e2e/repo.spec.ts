@@ -12,25 +12,31 @@ import { expect, test } from "@playwright/test";
  * The repo directories are created in the OS temp dir, never inside the checkout: a
  * fixture repo under `tests-e2e/` would sit inside the app root, and half of what these
  * tests check is behaviour that only applies outside it.
+ *
+ * The vault fixture is this file's OWN project. It first borrowed `zeta-editable` from
+ * `brief-editor.spec.ts`; both reset that file in `beforeEach`, `fullyParallel` is on and
+ * there are two workers, so the two specs co-scheduled and one reset the file under the
+ * other. It surfaced as the editor reporting "Changed on disk" - a conflict that looked
+ * like a real lost-update bug and was two tests fighting. Every spec owns its own project.
  */
 test.describe.configure({ mode: "serial" });
 
-const SLUG = "zeta-editable";
+const SLUG = "nu-repo-link";
 const FILE = path.resolve(import.meta.dirname, "fixture-vault", SLUG, "project.md");
 const VAULT = path.resolve(import.meta.dirname, "fixture-vault");
 
 const ORIGINAL = `---
-name: Zeta Editable
-slug: zeta-editable
+name: Nu Repo Link
+slug: nu-repo-link
 stage: shaping
 health: green
 archetype: internal-tool
-columns: [Intake, Build, Done]
-created: 2026-08-15
-updated: 2026-08-15
+columns: [Backlog, In progress, Done]
+created: 2026-08-20
+updated: 2026-08-20
 ---
 
-ORIGINAL BODY MARKER
+NU BODY MARKER
 `;
 
 let scratch: string;
@@ -96,7 +102,7 @@ test("writes the repo without disturbing the brief body", async ({ page }) => {
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByTestId("repo-connected")).toBeVisible();
 
-  expect(await frontmatter()).toContain("ORIGINAL BODY MARKER");
+  expect(await frontmatter()).toContain("NU BODY MARKER");
 });
 
 test("survives a reload, because the connection lives in the file", async ({ page }) => {

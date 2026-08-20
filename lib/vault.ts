@@ -22,7 +22,14 @@ import {
   containedPath,
   slugify,
 } from "./paths";
-import { buildDoc, readData, replaceBody, replaceData, split } from "./frontmatter";
+import {
+  buildDoc,
+  hasBrokenFrontmatter,
+  readData,
+  replaceBody,
+  replaceData,
+  split,
+} from "./frontmatter";
 import {
   CardMetaSchema,
   DEFAULT_COLUMNS,
@@ -552,6 +559,28 @@ export async function patchProjectMeta(
   const raw = await readIfPresent(file);
   if (raw === null) throw new VaultError("not_found", `No such project: ${slug}`);
 
+  /*
+   * Refuse to write over frontmatter that did not parse.
+   *
+   * `readData` swallows a YAML syntax error and returns `{}` - deliberately, so one bad
+   * file stays one bad file instead of taking down a page. But on the WRITE path that
+   * silence is destructive: the preservation pass carries nothing, zod fills in defaults,
+   * and a single click replaces everything the user typed with fabricated values. Verified
+   * on an unclosed `tags: [portal, q3` - one stage change erased the tags and a `notes:`
+   * line and invented a health, an archetype and a column list.
+   *
+   * `hasBrokenFrontmatter` existed for exactly this and had no callers. Refusing is the
+   * only safe answer: the file needs a human to fix the YAML, and the app cannot tell what
+   * the missing bytes were meant to say.
+   */
+  if (hasBrokenFrontmatter(raw)) {
+    throw new VaultError(
+      "invalid_document",
+      `${PROJECT_FILE} has frontmatter that does not parse as YAML. Fix it in an editor ` +
+        `first - writing over it now would replace what is there with defaults.`,
+    );
+  }
+
   await assertUnchanged(file, expectedMtimeMs);
 
   const current = ProjectMetaSchema.safeParse({ name: slug, ...readData(raw), slug });
@@ -924,6 +953,28 @@ export async function patchCardMeta(
   const raw = await readIfPresent(file);
   if (raw === null) throw new VaultError("not_found", `No card ${id} in ${slug}`);
 
+  /*
+   * Refuse to write over frontmatter that did not parse.
+   *
+   * `readData` swallows a YAML syntax error and returns `{}` - deliberately, so one bad
+   * file stays one bad file instead of taking down a page. But on the WRITE path that
+   * silence is destructive: the preservation pass carries nothing, zod fills in defaults,
+   * and a single click replaces everything the user typed with fabricated values. Verified
+   * on an unclosed `tags: [portal, q3` - one stage change erased the tags and a `notes:`
+   * line and invented a health, an archetype and a column list.
+   *
+   * `hasBrokenFrontmatter` existed for exactly this and had no callers. Refusing is the
+   * only safe answer: the file needs a human to fix the YAML, and the app cannot tell what
+   * the missing bytes were meant to say.
+   */
+  if (hasBrokenFrontmatter(raw)) {
+    throw new VaultError(
+      "invalid_document",
+      `Card ${id} has frontmatter that does not parse as YAML. Fix it in an editor ` +
+        `first - writing over it now would replace what is there with defaults.`,
+    );
+  }
+
   await assertUnchanged(file, expectedMtimeMs);
 
   const current = CardMetaSchema.safeParse(readData(raw));
@@ -931,7 +982,21 @@ export async function patchCardMeta(
     throw new VaultError("invalid_document", `${name}: ${describeIssues(current.error)}`);
   }
 
-  const next = CardMetaSchema.safeParse({ ...current.data, ...patch, id, updated: today() });
+  /*
+   * `undefined` in a patch means "not provided", never "reset to the default".
+   *
+   * Spreading it through hands zod a present-but-empty key, and `.default()` CONSUMES
+   * undefined - so `{priority: undefined}` silently rewrites the card's priority to P2.
+   * This filter went into `patchProjectMeta` when `repo` was added and was not applied
+   * here; the trap was unreachable only because `lib/ai/apply.ts` hand-guards `phase` at
+   * the one call site that could hit it. Fixing it at the call site instead of in the
+   * writer left the next caller to find it again.
+   */
+  const provided = Object.fromEntries(
+    Object.entries(patch).filter(([, v]) => v !== undefined),
+  );
+
+  const next = CardMetaSchema.safeParse({ ...current.data, ...provided, id, updated: today() });
   if (!next.success) {
     throw new VaultError("invalid_document", describeIssues(next.error));
   }

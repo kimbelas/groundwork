@@ -33,6 +33,15 @@ import { VaultError } from "./errors";
  *   own prose as though it were source code, which is precisely the confusion the
  *   grounding check exists to prevent.
  *
+ * ## The contract on callers
+ *
+ * `validateRepoPath` is the only function that checks a path against the vault, because
+ * that check needs a vault root this module deliberately does not import. The readers
+ * enforce what they can on their own - the root must be absolute, and nothing may resolve
+ * outside it - but they cannot tell whether an absolute root is the vault. **Every reader
+ * must be given a path that came from `validateRepoPath`.** A stored `repo:` value is
+ * hand-editable frontmatter and has to be re-validated, not trusted.
+ *
  * ## What is NOT guaranteed
  *
  * A path validated at connect time can stop being valid at any moment — the directory
@@ -132,7 +141,20 @@ export function resolveInRepo(repo: string, rel: string): string {
     reject(`Absolute path rejected inside a repository: ${rel}`);
   }
 
-  const root = path.resolve(repo);
+  /*
+   * Validate the ROOT too, not only the relative part.
+   *
+   * `path.resolve` on a relative root silently anchors it at the server's cwd, so
+   * `resolveInRepo("lib", "vault.ts")` used to hand back a path inside the app's own
+   * source. `repo` is a hand-editable frontmatter string: a typo, or someone writing a
+   * relative path in Obsidian, is an ordinary event and must fail rather than resolve
+   * somewhere plausible.
+   *
+   * This does not check the repo against the vault - that needs a vault path this module
+   * deliberately does not know. `validateRepoPath` does it, and every reader here must be
+   * given a path that came from it. See the header comment.
+   */
+  const root = normalizeRepoPath(repo);
   const target = path.resolve(root, rel);
   if (!isInside(root, target)) {
     throw new VaultError("escapes_root", `Path escapes the repository: ${rel}`);
@@ -225,7 +247,19 @@ export async function readRepoFile(repo: string, rel: string): Promise<string> {
     );
   }
 
-  const stat = await fsp.stat(real);
+  /*
+   * Everything past the realpath check is wrapped too. A repo is someone else's working
+   * directory - a branch switch, a build, or a `git clean` can delete this file between
+   * the two calls, and a raw ENOENT escaping here reaches a route as an unhandled error
+   * and a 500 with no message rather than a typed 404.
+   */
+  let stat: Stats;
+  try {
+    stat = await fsp.stat(real);
+  } catch {
+    throw new VaultError("not_found", `No such file in the repository: ${rel}`);
+  }
+
   if (!stat.isFile()) {
     throw new VaultError("not_found", `Not a file in the repository: ${rel}`);
   }
@@ -238,7 +272,11 @@ export async function readRepoFile(repo: string, rel: string): Promise<string> {
     );
   }
 
-  return fsp.readFile(real, "utf8");
+  try {
+    return await fsp.readFile(real, "utf8");
+  } catch {
+    throw new VaultError("not_found", `Could not read ${rel} from the repository.`);
+  }
 }
 
 export interface RepoStatus extends RepoInfo {
@@ -257,7 +295,20 @@ export interface RepoStatus extends RepoInfo {
  * showing status is to say so, and a throw in a page takes down the entire screen.
  */
 export async function describeRepo(repoPath: string): Promise<RepoStatus> {
-  const resolved = path.resolve(repoPath);
+  /*
+   * A stored value that is not a usable path at all - relative, empty, hand-mangled in
+   * Obsidian - reports as absent rather than throwing. The never-throws contract is the
+   * whole point: this renders on a page, and the value being broken is exactly when the
+   * user needs to see it said out loud.
+   */
+  let resolved: string;
+  try {
+    resolved = normalizeRepoPath(repoPath);
+  } catch {
+    const shown = typeof repoPath === "string" ? repoPath : "";
+    return { path: shown, name: shown, exists: false };
+  }
+
   const base = { path: resolved, name: path.basename(resolved) || resolved };
   try {
     const stat = await fsp.stat(resolved);
@@ -286,7 +337,9 @@ export interface WalkResult {
  * them churn in git for no reason.
  */
 export async function listRepoFiles(repo: string): Promise<WalkResult> {
-  const root = path.resolve(repo);
+  // Same reason as resolveInRepo: a relative root would anchor at the server's cwd and
+  // walk the app's own source. `listRepoFiles("lib")` returned 28 files of it.
+  const root = normalizeRepoPath(repo);
   const files: string[] = [];
   let truncated = false;
 

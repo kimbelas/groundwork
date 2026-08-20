@@ -38,6 +38,12 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
   diff, and applies it only on user accept — after snapshotting. Enforced by
   `.claude/settings.json`: the spawned CLI's Write permission covers only
   `.groundwork/runs/**`.
+- **A write refuses frontmatter that did not parse.** `readData` swallows a YAML syntax
+  error and returns `{}` so one bad file stays one bad file instead of killing a page —
+  correct on the read path, destructive on the write path, where it means the
+  preservation pass carries nothing and zod fills in defaults. One click replaced
+  everything a user had typed with fabricated values. Both patch functions call
+  `hasBrokenFrontmatter` and throw `invalid_document`; the file needs a human.
 - **Snapshot before every apply.** Copy each target file into
   `vault/<slug>/.snapshots/<ISO>/` first. Revert restores the newest snapshot.
 - **One AI run at a time**, enforced by a lock file.
@@ -109,6 +115,23 @@ and this paragraph has itself been stale once, which is the point.
   any page in the browser can reach 127.0.0.1.
 - Do not import Next's generated `PageProps`/`LayoutProps`; they are excluded from the
   program on purpose. Type route params by hand.
+- **A patch value of `undefined` means "not provided", never "clear it".** Filter it out
+  before merging. `zod`'s `.default()` *consumes* undefined, so a present-but-empty key
+  silently rewrites the field to its default — a stage of "building" becomes "idea".
+  Only `null` clears, and only where a field is optional (`repo`). This was fixed at one
+  call site in `lib/ai/apply.ts` before it was fixed in the writer, which left the next
+  caller to rediscover it.
+- **A guard needs a test at its call site, not only on its function.** A review replaced
+  `assertInstructionScoped(...)` in `lib/ai/claude-cli.ts` with `void
+  assertInstructionScoped;` and all 428 tests still passed: the check was correct and
+  nothing verified it was installed. `prepareRun` exists as a seam so that is
+  assertable. This is the same defect shape as a guard that does not guard, and it is now
+  the fourth instance in this codebase.
+- **A test that cannot run must skip, not pass.** Four symlink tests began `if (!symlinks)
+  return;` and reported green on Windows, where `symlink(..., "dir")` needs elevation —
+  disabling both symlink guards in `lib/repo.ts` changed nothing. Use `it.skipIf`, and
+  prefer a mechanism that actually runs: a **junction** needs no elevation and takes the
+  identical code path.
 - **Never copy server data into `useState`.** `useState` ignores a changed initial
   value, so the component freezes at first render and no `router.refresh()` ever
   reaches it. Hold optimistic *overrides* keyed by id and derive the rendered value.
@@ -136,6 +159,11 @@ and this paragraph has itself been stale once, which is the point.
 - **The vault index must stay cheap.** The rail renders in the root layout, so every
   page pays for `listProjects()`. Reads are concurrent and deduplicated by an in-flight
   map; do not reintroduce a serial loop or a second directory walk.
+- **Every e2e spec owns its own fixture project.** `repo.spec.ts` borrowed
+  `zeta-editable` from `brief-editor.spec.ts`; both reset that file in `beforeEach`,
+  `fullyParallel` is on and there are two workers, so they co-scheduled and one reset the
+  file under the other. It surfaced as the editor reporting "Changed on disk" — a
+  conflict that looked like a real lost-update bug and was two tests fighting.
 - **Playwright workers are pinned to 2.** Every worker drives one shared Next dev
   server on a 4-core box; the default is derived from core count, which made the
   suite's outcome depend on ambient machine load. Raise it only with measurement.

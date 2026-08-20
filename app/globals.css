@@ -719,7 +719,15 @@ input[type="checkbox"] {
  */
 .repo-path {
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  /*
+   * --text-sm, not --text-xs.
+   *
+   * 13px passed the 12px lint floor and was still the smallest type in the whole app, on
+   * the one string a user compares character by character. "Comfortable sizing is not up
+   * for negotiation" is the rule that got two previous designs thrown out, and a floor is
+   * not a target.
+   */
+  font-size: var(--text-sm);
   line-height: var(--lead-snug);
   color: var(--ink-soft);
   overflow-wrap: anywhere;

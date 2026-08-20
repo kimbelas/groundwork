@@ -144,38 +144,61 @@ function* parseLines(buffer: string): Generator<string> {
   }
 }
 
+/**
+ * Everything decided before a process exists: where the proposal goes, what the model is
+ * told, and whether that is allowed to leave this directory.
+ *
+ * Extracted from `run` and exported so the scope check has a call site a test can reach.
+ * It did not, and a review proved the consequence by replacing the check with
+ * `void assertInstructionScoped;` - the entire suite still passed. The guard worked and
+ * nothing verified it was installed, which is the same shape of defect as a guard that
+ * does not guard.
+ */
+export function prepareRun(
+  job: AiJob,
+  runId: string,
+  cwd: string,
+): { instruction: string; outPath: string } {
+  /**
+   * The output path is given to the model **relative to cwd**, with forward slashes.
+   *
+   * This is not cosmetic. Permission rules like `Write(.groundwork/runs/**)` are anchored
+   * at the project root, and an absolute path does not match them - so handing the model
+   * an absolute path meant its Write was denied and the run finished having composed a
+   * perfectly good proposal it could not save. Only fall back to the absolute path if the
+   * run directory sits outside cwd, where no relative rule could apply.
+   */
+  const { proposal: absoluteOut } = runPaths(runId);
+  const relativeOut = path.relative(cwd, absoluteOut).split(path.sep).join("/");
+  const outPath = relativeOut.startsWith("..") ? absoluteOut : relativeOut;
+
+  const instruction = instructionFor(job, outPath);
+
+  /*
+   * Nothing outside the app root may be named to the run.
+   *
+   * A run's permissions are a denylist anchored at this directory, so a path outside it is
+   * not merely unlisted - it is unprotected, and `Write` is granted broadly. The edit that
+   * would breach this is adding a connected repository's path to a prompt, so the rule is
+   * enforced here rather than remembered. `lib/ai/scope.ts` carries the full argument and
+   * the design that makes repo-grounded planning work without it.
+   *
+   * `absoluteOut` is allowed through: it is the one path the run legitimately needs outside
+   * the root, and only when `GROUNDWORK_RUNS` points elsewhere - the fallback just above.
+   * Without it the guard rejected exactly the case it was written to permit, so no run
+   * could start on such an install at all.
+   */
+  assertInstructionScoped(instruction, cwd, { allow: [absoluteOut] });
+
+  return { instruction, outPath };
+}
+
 export const claudeCliEngine: AiEngine = {
   name: "claude-cli",
 
   run(job: AiJob, runId: string, onEvent: (e: AiEvent) => void): Promise<void> {
     const cwd = path.resolve(process.cwd());
-
-    /**
-     * The output path is given to the model **relative to cwd**, with forward slashes.
-     *
-     * This is not cosmetic. Permission rules like `Write(.groundwork/runs/**)` are
-     * anchored at the project root, and an absolute path does not match them — so handing
-     * the model an absolute path meant its Write was denied and the run finished having
-     * composed a perfectly good proposal it could not save. Only fall back to the
-     * absolute path if the run directory somehow sits outside cwd, where no relative rule
-     * could apply anyway.
-     */
-    const { proposal: absoluteOut } = runPaths(runId);
-    const relativeOut = path.relative(cwd, absoluteOut).split(path.sep).join("/");
-    const outPath = relativeOut.startsWith("..") ? absoluteOut : relativeOut;
-
-    const instruction = instructionFor(job, outPath);
-
-    /*
-     * Nothing outside the app root may be named to the run.
-     *
-     * A run's permissions are a denylist anchored at this directory, so a path outside it
-     * is not merely unlisted — it is unprotected, and `Write` is granted broadly. The one
-     * edit that would breach this is adding a connected repository's path to a prompt, so
-     * the rule is enforced here rather than remembered. `lib/ai/scope.ts` carries the full
-     * argument and the design that makes repo-grounded planning work without it.
-     */
-    assertInstructionScoped(instruction, cwd);
+    const { instruction } = prepareRun(job, runId, cwd);
 
     return new Promise<void>((resolve, reject) => {
       const args = [

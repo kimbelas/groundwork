@@ -54,6 +54,8 @@ afterEach(async () => {
   await fsp.rm(dir, { recursive: true, force: true });
 });
 
+const NL = String.fromCharCode(10);
+
 const REPO = process.platform === "win32" ? "C:\\work\\portal" : "/work/portal";
 
 describe("patchProjectMeta and the repo field", () => {
@@ -207,5 +209,142 @@ Body.
     const data = readData(await read("extras/project.md"));
     expect("repo" in data).toBe(false);
     expect(data.tags).toEqual(["x"]);
+  });
+});
+
+describe("undefined in a patch never resets a field", () => {
+  /*
+   * A review removed both `undefined` filters, one at a time, and the whole suite stayed
+   * green at 428 — the test named "does not throw a YAML error" was carried by the
+   * destructure, not by either filter. These are the cases that actually fail without them.
+   *
+   * The failure is not a crash. `zod`'s `.default()` CONSUMES undefined, so a present-but-
+   * empty key silently rewrites the field to its default: a stage of "building" becomes
+   * "idea", a priority becomes P2. Quiet, and wrong.
+   */
+  it("leaves a project field alone when the patch names it as undefined", async () => {
+    await vault.patchProjectMeta("portal-rebuild", { stage: "building" });
+    const { meta } = await vault.patchProjectMeta("portal-rebuild", { stage: undefined });
+    expect(meta.stage).toBe("building");
+  });
+
+  it("leaves a card field alone when the patch names it as undefined", async () => {
+    // patchCardMeta never received the filter at all. It was unreachable only because
+    // lib/ai/apply.ts hand-guards `phase` at the one call site that could hit it.
+    await write(
+      "portal-rebuild/cards/0001-a-card.md",
+      `---\nid: 1\ntitle: A card\ncolumn: Backlog\npriority: P1\nphase: 3\n---\n\nBody.\n`,
+    );
+
+    const { meta } = await vault.patchCardMeta("portal-rebuild", 1, {
+      title: "Renamed",
+      priority: undefined,
+      phase: undefined,
+    });
+
+    expect(meta.title).toBe("Renamed");
+    expect(meta.priority).toBe("P1");
+    expect(meta.phase).toBe(3);
+  });
+});
+
+describe("frontmatter that does not parse", () => {
+  const BROKEN = `---
+name: Portal Rebuild
+stage: shaping
+tags: [portal, q3
+notes: everything the user typed
+---
+
+Body.
+`;
+
+  it("refuses a project meta write rather than replacing it with defaults", async () => {
+    /*
+     * `readData` swallows a YAML error and returns `{}` — deliberately, so one bad file
+     * stays one bad file instead of taking down a page. On the WRITE path that silence was
+     * destructive: the preservation pass carried nothing, zod filled in defaults, and one
+     * stage change replaced everything the user typed with fabricated values.
+     */
+    await write("broken-fm/project.md", BROKEN);
+
+    let code = "did-not-throw";
+    try {
+      await vault.patchProjectMeta("broken-fm", { stage: "building" });
+    } catch (e) {
+      code = (e as { code?: string }).code ?? String(e);
+    }
+    expect(code).toBe("invalid_document");
+
+    // Byte-identical. Nothing was written at all.
+    expect(await read("broken-fm/project.md")).toBe(BROKEN);
+  });
+
+  it("refuses a card meta write for the same reason", async () => {
+    await write("broken-fm/project.md", PROJECT.replace("portal-rebuild", "broken-fm"));
+    const brokenCard = `---\nid: 1\ntitle: A card\ncolumn: [Backlog\n---\n\nBody.\n`;
+    await write("broken-fm/cards/0001-a-card.md", brokenCard);
+
+    let code = "did-not-throw";
+    try {
+      await vault.patchCardMeta("broken-fm", 1, { title: "Renamed" });
+    } catch (e) {
+      code = (e as { code?: string }).code ?? String(e);
+    }
+    expect(code).toBe("invalid_document");
+    expect(await read("broken-fm/cards/0001-a-card.md")).toBe(brokenCard);
+  });
+});
+
+describe("a hand-edited repo line", () => {
+  it("reads a bare `repo:` as absent instead of taking the page down", async () => {
+    /*
+     * The obvious hand-edit for "disconnect this" is deleting the value and leaving the
+     * key. That parses as `null`, and a strict `z.string().min(1).optional()` made
+     * getProject throw — so the most likely thing a person types turned a stale setting
+     * into a dead brief page.
+     */
+    await write("hand-edit/project.md", `---\nname: Hand\nrepo:\n---\n\nBody.\n`);
+    const project = await vault.getProject("hand-edit");
+    expect(project.meta.repo).toBeUndefined();
+  });
+
+  it("reads an empty or whitespace value as absent", async () => {
+    await write("hand-edit/project.md", `---\nname: Hand\nrepo: "   "\n---\n\nBody.\n`);
+    expect((await vault.getProject("hand-edit")).meta.repo).toBeUndefined();
+  });
+
+  it("trims a pasted path", async () => {
+    // Single-quoted in YAML on purpose: inside DOUBLE quotes a backslash starts an
+    // escape, so a Windows path there is a syntax error and the whole block silently
+    // fails to parse - which reads as "the field was ignored".
+    const yaml = ['---', 'name: Hand', `repo: '  ${REPO}  '`, '---', '', 'B.', ''].join(NL);
+    await write("hand-edit/project.md", yaml);
+    expect((await vault.getProject("hand-edit")).meta.repo).toBe(REPO);
+  });
+
+  it("does not write the key back after reading a bare one", async () => {
+    // Absent in, absent out. A `repo:` line must not reappear on an unrelated edit.
+    await write("hand-edit/project.md", `---\nname: Hand\nrepo:\n---\n\nBody.\n`);
+    await vault.patchProjectMeta("hand-edit", { stage: "building" });
+    expect("repo" in readData(await read("hand-edit/project.md"))).toBe(false);
+  });
+});
+
+describe("preserved keys keep their shape", () => {
+  it("does not grow a time and a timezone onto a hand-written date", async () => {
+    // gray-matter parses `due: 2026-01-01` into a Date, and dumping that gives
+    // `2026-01-01T00:00:00.000Z`. A key this app merely preserves came from the file and
+    // goes straight back, so an unrelated edit silently rewrote the user's date.
+    await write("dated/project.md", `---\nname: Dated\ndue: 2026-01-01\n---\n\nBody.\n`);
+    await vault.patchProjectMeta("dated", { stage: "building" });
+
+    const after = await read("dated/project.md");
+
+    // The visible value survives. js-yaml quotes it, which is it being explicit that
+    // this is a string rather than a timestamp - and that makes the next round trip a
+    // no-op, because a quoted scalar parses back as a string instead of a Date.
+    expect(after).toMatch(/due: '?2026-01-01'?/);
+    expect(after).not.toContain("T00:00:00");
   });
 });

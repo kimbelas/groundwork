@@ -1,3 +1,4 @@
+import fsSync from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -5,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { isVaultError } from "@/lib/errors";
 import {
+  describeRepo,
   isInside,
   listRepoFiles,
   MAX_FILE_BYTES,
@@ -27,8 +29,41 @@ let root: string;
 let repo: string;
 let vault: string;
 
-/** Symlinks need elevation or Developer Mode on Windows; the test skips rather than lies. */
-let symlinks = true;
+/**
+ * Can this machine make a directory link at all?
+ *
+ * Probed once at module load, not per test, because `it.skipIf` is evaluated when the file
+ * is collected. The previous version set a flag in `beforeEach` and each symlink test
+ * began `if (!symlinks) return;` - so on Windows, where `symlink(..., "dir")` returns
+ * EPERM without elevation, four tests reported GREEN while asserting nothing. A review
+ * proved it by disabling both symlink guards in `lib/repo.ts`: the file still passed 42/42.
+ *
+ * A **junction** needs no elevation and exercises the identical code path - `readdir`
+ * reports `isDirectory() === false` and `isSymbolicLink() === true` for one, exactly as for
+ * a symlink, and `realpath` resolves through it. So on Windows the tests use a junction and
+ * actually run. Where neither works they SKIP, which says so in the output instead of
+ * passing quietly.
+ */
+const LINK_TYPE: "junction" | "dir" = process.platform === "win32" ? "junction" : "dir";
+
+const CAN_LINK = (() => {
+  const probe = fsSync.mkdtempSync(path.join(os.tmpdir(), "gw-link-probe-"));
+  try {
+    const target = path.join(probe, "target");
+    fsSync.mkdirSync(target);
+    fsSync.symlinkSync(target, path.join(probe, "link"), LINK_TYPE);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    fsSync.rmSync(probe, { recursive: true, force: true });
+  }
+})();
+
+/** A directory link. Junctions are directory-only, so a file is reached *through* one. */
+async function linkDir(target: string, linkPath: string): Promise<void> {
+  await fsp.symlink(target, linkPath, LINK_TYPE);
+}
 
 async function file(rel: string, contents = "x"): Promise<string> {
   const full = path.join(repo, rel);
@@ -43,15 +78,6 @@ beforeEach(async () => {
   vault = path.join(root, "vault");
   await fsp.mkdir(repo, { recursive: true });
   await fsp.mkdir(vault, { recursive: true });
-
-  try {
-    const probe = path.join(root, "probe-link");
-    await fsp.symlink(vault, probe, "dir");
-    await fsp.rm(probe, { force: true });
-    symlinks = true;
-  } catch {
-    symlinks = false;
-  }
 });
 
 afterEach(async () => {
@@ -204,22 +230,20 @@ describe("validateRepoPath", () => {
     expect(info.path).toBe(await fsp.realpath(repo));
   });
 
-  it("resolves through a symlink and stores the real path", async () => {
-    if (!symlinks) return;
+  it.skipIf(!CAN_LINK)("resolves through a link and stores the real path", async () => {
     const link = path.join(root, "link-to-repo");
-    await fsp.symlink(repo, link, "dir");
+    await linkDir(repo, link);
 
     const info = await validateRepoPath(link, vault);
     expect(info.path).toBe(await fsp.realpath(repo));
     expect(info.path).not.toBe(path.resolve(link));
   });
 
-  it("refuses a symlink that points into the vault", async () => {
-    if (!symlinks) return;
-    // The case a lexical nesting check cannot see: the path looks unrelated to the
-    // vault and resolves straight into it.
+  it.skipIf(!CAN_LINK)("refuses a link that points into the vault", async () => {
+    // The case a lexical nesting check cannot see: the path looks unrelated to the vault
+    // and resolves straight into it.
     const link = path.join(root, "looks-like-a-repo");
-    await fsp.symlink(vault, link, "dir");
+    await linkDir(vault, link);
 
     expect(await asyncCode(() => validateRepoPath(link, vault))).toBe("invalid_repo");
   });
@@ -245,19 +269,20 @@ describe("readRepoFile", () => {
     expect(await asyncCode(() => readRepoFile(repo, "../vault/secret.md"))).toBe("escapes_root");
   });
 
-  it("refuses to follow a symlink out of the repo", async () => {
-    if (!symlinks) return;
+  it.skipIf(!CAN_LINK)("refuses to follow a link out of the repo", async () => {
     /*
-     * The check the lexical one cannot make. `src/leak.md` is a perfectly ordinary
-     * repo-relative path; only the filesystem knows it points at the vault. Without the
+     * The check the lexical one cannot make. `linked/secret.md` is a perfectly ordinary
+     * repo-relative path; only the filesystem knows it leaves the repo. Without the
      * realpath re-check this read succeeds and nothing in the request looks wrong.
+     *
+     * The escape goes through a linked DIRECTORY rather than a linked file, because a
+     * junction - the only kind of link this machine can make without elevation - is
+     * directory-only. Same code path, same assertion.
      */
-    const secret = path.join(vault, "secret.md");
-    await fsp.writeFile(secret, "private", "utf8");
-    await fsp.mkdir(path.join(repo, "src"), { recursive: true });
-    await fsp.symlink(secret, path.join(repo, "src", "leak.md"), "file");
+    await fsp.writeFile(path.join(vault, "secret.md"), "private", "utf8");
+    await linkDir(vault, path.join(repo, "linked"));
 
-    expect(await asyncCode(() => readRepoFile(repo, "src/leak.md"))).toBe("escapes_root");
+    expect(await asyncCode(() => readRepoFile(repo, "linked/secret.md"))).toBe("escapes_root");
   });
 
   it("refuses a file over the size cap", async () => {
@@ -312,12 +337,11 @@ describe("listRepoFiles", () => {
     expect(first.files).toEqual([...first.files].sort());
   });
 
-  it("does not descend into a symlinked directory", async () => {
-    if (!symlinks) return;
+  it.skipIf(!CAN_LINK)("does not descend into a linked directory", async () => {
     // Following one risks both an escape and an unbounded loop, and no version of
     // "list this project's files" needs it.
     await fsp.writeFile(path.join(vault, "secret.md"), "private", "utf8");
-    await fsp.symlink(vault, path.join(repo, "linked"), "dir");
+    await linkDir(vault, path.join(repo, "linked"));
     await file("src/a.ts");
 
     const { files } = await listRepoFiles(repo);
@@ -328,12 +352,23 @@ describe("listRepoFiles", () => {
     expect(await listRepoFiles(repo)).toEqual({ files: [], truncated: false });
   });
 
-  it("survives a directory it cannot read", async () => {
-    // Permission-denied subtrees are ordinary on a real machine. One must not fail the
-    // whole walk. Simulated by pointing the walk at a path that vanishes mid-flight.
+  it("walks a subdirectory as its own root", async () => {
+    // Renamed from "survives a directory it cannot read", which is not what it did - it
+    // listed a perfectly readable subdirectory and the comment described a mechanism the
+    // test never reached.
     await file("src/a.ts");
     const { files } = await listRepoFiles(path.join(repo, "src"));
     expect(files).toEqual(["a.ts"]);
+  });
+
+  it("skips a path in the walk that is not a readable directory", async () => {
+    /*
+     * The `catch { continue }` branch, actually exercised. `readdir` on a file throws
+     * ENOTDIR, which is the same branch a permission-denied subtree takes - and those are
+     * ordinary on a real machine, so one must not fail the whole walk.
+     */
+    const notADir = await file("plain.txt");
+    expect(await listRepoFiles(notADir)).toEqual({ files: [], truncated: false });
   });
 
   it("reports a nonexistent root as empty, not as a crash", async () => {
@@ -346,66 +381,153 @@ describe("listRepoFiles", () => {
   });
 });
 
+describe("a reader will not accept an unvalidated root", () => {
+  /*
+   * `repo` is hand-editable frontmatter, so the connect-time checks do not hold for a
+   * stored value. A review pointed the readers at the app's own source with a relative
+   * root: `listRepoFiles("lib")` returned 28 files of it, `readRepoFile(vaultDir, ...)`
+   * returned a plan, and `describeRepo("lib")` reported "Connected" for a path the user
+   * never typed. `path.resolve` on a relative root silently anchors it at the server's cwd.
+   *
+   * Not reachable in P1, because nothing reads yet. It would have been in P2.
+   */
+  it("refuses a relative root when walking", async () => {
+    expect(await asyncCode(() => listRepoFiles("lib"))).toBe("invalid_repo");
+  });
+
+  it("refuses a relative root when reading a file", async () => {
+    expect(await asyncCode(() => readRepoFile("lib", "vault.ts"))).toBe("invalid_repo");
+  });
+
+  it("refuses a relative root when resolving", () => {
+    expect(code(() => resolveInRepo("lib", "vault.ts"))).toBe("invalid_repo");
+  });
+
+  it("reports an unusable stored value as absent rather than throwing", async () => {
+    // describeRepo renders on a page, so it must never throw - the value being broken is
+    // exactly when the user needs to be told.
+    expect(await describeRepo("lib")).toEqual({ path: "lib", name: "lib", exists: false });
+    expect((await describeRepo("")).exists).toBe(false);
+  });
+
+  it("still reports a real absolute directory as present", async () => {
+    const status = await describeRepo(repo);
+    expect(status.exists).toBe(true);
+    expect(status.name).toBe("repo");
+  });
+});
+
 describe("the read-only guarantee", () => {
-  it("makes no writing filesystem call anywhere in the module", async () => {
-    /*
-     * A structural test, deliberately.
-     *
-     * The exception in CLAUDE.md that lets this file import `fs` at all was granted
-     * partly on "it never writes", and a comment saying so is not enforcement - the next
-     * person to add a cache here would be adding a write to a module the boundary gate
-     * has already waved through.
-     *
-     * Matched as a member call rather than a bare substring. The first version of this
-     * test looked for the word "truncate" and failed on the local variable `truncated`,
-     * which is the kind of false positive that gets a guard deleted rather than fixed.
-     */
-    const source = await fsp.readFile(path.join(process.cwd(), "lib", "repo.ts"), "utf8");
-    const code = source
+  /** Source with comment lines removed, so prose about writing is not mistaken for one. */
+  async function codeOf(rel: string): Promise<string> {
+    const source = await fsp.readFile(path.join(process.cwd(), rel), "utf8");
+    return source
       .split(NL)
-      .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l))
+      .filter((l) => {
+        const t = l.trim();
+        return !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*");
+      })
       .join(NL);
+  }
 
-    const WRITES = [
-      "writeFile",
-      "appendFile",
-      "mkdir",
-      "mkdtemp",
-      "rm",
-      "rmdir",
-      "unlink",
-      "rename",
-      "cp",
-      "copyFile",
-      "createWriteStream",
-      "chmod",
-      "chown",
-      "utimes",
-      "symlink",
-      "link",
-      "truncate",
-      "open",
-      "openSync",
-      "writeSync",
-    ];
+  // Each entry also covers its Sync twin, via the `\w*` in callPattern.
+  const WRITES = [
+    "writeFile",
+    "appendFile",
+    "write",
+    "mkdir",
+    "mkdtemp",
+    "rm",
+    "rmdir",
+    "unlink",
+    "rename",
+    "cp",
+    "copyFile",
+    "createWriteStream",
+    "chmod",
+    "chown",
+    "utimes",
+    "symlink",
+    "truncate",
+    "open",
+  ];
 
+  /**
+   * Matches a call whether it is reached through a namespace or by a bare name.
+   *
+   * The first version required a member call - `\\.\\s*name\\s*\\(` - and a review walked straight
+   * through it with `import { writeFile } from "node:fs/promises"` followed by
+   * `await writeFile(...)`. That wrote a file into the connected repo, and this test, the
+   * fs-boundary gate and tsc were all still green. It matters more here than it would
+   * elsewhere, because `scripts/fs-boundary.js` now ALLOWLISTS this file: the string check
+   * is the only guard left, and it is the stated basis for the exception in CLAUDE.md.
+   *
+   * The leading `(?:^|[^.\\w])` still refuses to fire on `truncated` or `linked`, which are
+   * identifiers this module legitimately uses.
+   */
+  function callPattern(name: string): RegExp {
+    const B = String.fromCharCode(92);
+    /*
+     * (?:^|[^\w]) <name> \w* \s* \(
+     *
+     * The leading class excludes word characters but NOT the dot, so both `fsp.writeFile(`
+     * and a bare `writeFile(` match while `safeWriteFile(` does not. An earlier attempt
+     * excluded the dot as well, to avoid firing on `truncated` - which was unnecessary,
+     * since the trailing `\(` already rules that out, and it silently stopped matching
+     * every namespaced call.
+     *
+     * The `\w*` lets one entry cover its Sync twin: `rm` catches `rmSync(` too.
+     */
+    return new RegExp("(?:^|[^" + B + "w])" + name + B + "w*" + B + "s*" + B + "(", "m");
+  }
+
+  it("makes no writing filesystem call, by namespace or by bare name", async () => {
+    const code = await codeOf(path.join("lib", "repo.ts"));
     for (const call of WRITES) {
-      const pattern = new RegExp(String.raw`\.\s*` + call + String.raw`\s*\(`);
-      expect(pattern.test(code), `lib/repo.ts must not call .${call}()`).toBe(false);
+      expect(callPattern(call).test(code), `lib/repo.ts must not call ${call}()`).toBe(false);
     }
   });
 
-  it("would catch a write if one were added", () => {
-    // Proves the matcher above is not vacuous: the same pattern fires on a line that
-    // does write. Without this, a broken regex reads as a clean module.
-    const sample = `await fsp.writeFile(target, "x", "utf8");`;
-    expect(/\.\s*writeFile\s*\(/.test(sample)).toBe(true);
+  it("imports from node:fs in exactly the two ways it is allowed to", async () => {
+    /*
+     * The matcher above is a denylist of names, so a write through some function nobody
+     * listed slips past it. This closes that from the other side: the module's only
+     * filesystem imports are the type-only one and the promises namespace, so a bare
+     * writing function cannot be in scope to be called in the first place.
+     */
+    const code = await codeOf(path.join("lib", "repo.ts"));
+    const imports = code.split(NL).filter((l) => l.includes("node:fs"));
+
+    expect(imports).toEqual([
+      'import type { Dirent, Stats } from "node:fs";',
+      'import fsp from "node:fs/promises";',
+    ]);
+  });
+
+  it("would catch a write reached through the namespace", () => {
+    expect(callPattern("writeFile").test(`await fsp.writeFile(t, "x", "utf8");`)).toBe(true);
+  });
+
+  it("would catch a write reached by a bare name", () => {
+    // The exact bypass a review used against the previous matcher.
+    expect(callPattern("writeFile").test(`await writeFile(t, "x", "utf8");`)).toBe(true);
+  });
+
+  it("would catch a Sync twin without listing it", () => {
+    expect(callPattern("rm").test(`fsSync.rmSync(dir, { recursive: true });`)).toBe(true);
+    expect(callPattern("mkdir").test(`fsSync.mkdirSync(dir);`)).toBe(true);
+  });
+
+  it("does not fire on an unrelated identifier that ends with a call name", () => {
+    // `safeWriteFile(` is not `writeFile(`; the leading class stops the match.
+    expect(callPattern("writeFile").test(`await safeWriteFile(t);`)).toBe(false);
   });
 
   it("does not fire on an identifier that merely contains a call name", () => {
-    // `truncated` contains "truncate"; `linked` contains "link". Both are legitimate.
-    const sample = `let truncated = false; const linked = queue.shift();`;
-    expect(/\.\s*truncate\s*\(/.test(sample)).toBe(false);
-    expect(/\.\s*link\s*\(/.test(sample)).toBe(false);
+    // `truncated` contains "truncate"; `linked` contains "link". Both are legitimate, and
+    // a guard that cries wolf on them is a guard someone deletes.
+    const sample = `let truncated = false; const linked = queue.shift(); const relinked = 1;`;
+    expect(callPattern("truncate").test(sample)).toBe(false);
+    expect(callPattern("symlink").test(sample)).toBe(false);
   });
 });

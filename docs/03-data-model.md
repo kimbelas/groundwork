@@ -30,6 +30,8 @@ Dotfolders inside a project are ignored by the indexer, so snapshots and trash n
 
 `gray-matter` — like every YAML round-tripper — re-serializes frontmatter on stringify: quoting shifts, comments vanish. So `lib/vault.ts` never parses and rewrites a whole file to change one half of it. A **body** edit splices the new body under the original frontmatter text, kept verbatim. A **frontmatter** edit re-serializes the frontmatter and leaves the body bytes alone. This is what makes "the half you didn't touch is byte-identical" a testable promise instead of a hope.
 
+A frontmatter edit **refuses to run at all if the existing frontmatter did not parse**. `readData` swallows a YAML syntax error and returns `{}`, which is right for reading — one bad file stays one bad file rather than killing a page — and destructive for writing, because the preservation pass then carries nothing and zod fills in defaults. An unclosed `tags: [portal, q3` plus one stage change erased the tags, erased a `notes:` line, and invented a health, an archetype and a column list. Fixing the YAML is a job for a person; the app cannot know what the missing bytes meant.
+
 A frontmatter edit also **carries across keys the schema does not know about**. A zod object strips unknown keys, so writing the parsed result straight back would delete a `tags:` line someone added in Obsidian, or a field a plugin maintains. The schema is the allowlist for what this app manages; everything else in the block belongs to the user and is preserved. Unknown keys are appended after the managed ones rather than interleaved, which is stable after the first write.
 
 ## `project.md`
@@ -64,7 +66,9 @@ Rules, all enforced in `lib/repo.ts`:
 - Access is **read-only**. Nothing in the app writes to a connected repo, and a test fails if any writing `fs` call appears in that module.
 - A path that has stopped being valid — renamed, deleted, unplugged — is **kept and reported**, never silently dropped. It records a decision the user made, and the fix is theirs.
 
-Removing the connection is a patch of `repo: null`, which deletes the key. Omitting it, or passing `undefined`, means "leave it alone".
+Removing the connection is a patch of `repo: null`, which deletes the key. Omitting it, or passing `undefined`, means "leave it alone" — a patch value of `undefined` never clears a field, because zod's `.default()` consumes undefined and would silently reset it.
+
+Reading is deliberately tolerant. A bare `repo:` line — the obvious hand-edit for "disconnect this" — parses as `null`, and a strict `z.string().min(1)` made `getProject` throw and took the whole brief page down. Anything that is not a usable path now reads as absent, and is not written back.
 
 The body is the Brief. It is free-form and the app never restructures it — synthesis reads it and produces cards elsewhere. That separation is what makes the brief safe to write badly in.
 

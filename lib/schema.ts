@@ -68,7 +68,25 @@ export const ProjectMetaSchema = z.object({
    * being valid at any time — the drive is unplugged, the directory is renamed — so the
    * schema must keep parsing a stale value rather than making the project unreadable.
    */
-  repo: z.string().min(1).optional(),
+  /*
+   * Tolerant on the way in, clean on the way out.
+   *
+   * `z.string().min(1).optional()` looked right and made the promise above a lie: a bare
+   * `repo:` line - the obvious hand-edit for "disconnect this" - parses as `null`, failed
+   * validation, and `getProject` threw. That takes down the whole brief page, so the one
+   * thing a person is most likely to type turned a stale setting into a dead screen.
+   *
+   * `preprocess` rather than `transform`, so the key stays optional in the output type:
+   * a transform on an optional field makes it a required `string | undefined`, which
+   * forces every literal ProjectMeta in the codebase to spell out `repo`.
+   *
+   * Anything that is not a usable path reads as absent. `stripUndefined` drops it on
+   * serialization, so the key does not come back on the next write either.
+   */
+  repo: z.preprocess(
+    (v) => (typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined),
+    z.string().min(1).optional(),
+  ),
   created: IsoDate.optional(),
   updated: IsoDate.optional(),
 });
