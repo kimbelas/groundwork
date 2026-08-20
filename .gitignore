@@ -1,8 +1,8 @@
 node_modules/
 .next/
 .next-e2e/
-out/
-build/
+/out/
+/build/
 *.tsbuildinfo
 next-env.d.ts
 
@@ -15,8 +15,13 @@ playwright-report/
 blob-report/
 .playwright/
 
-# The vault is its own repository
-vault/
+# The vault is its own repository.
+#
+# Anchored with a leading slash, which is load-bearing. A bare `vault/` matches a
+# directory of that name at ANY depth, and this app has `app/api/vault/` - so the two
+# route files that serve every project read and write were silently untracked. `git
+# status` said clean, the app ran fine locally, and a clone was missing its API.
+/vault/
 
 .env*
 !.env.example
