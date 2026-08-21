@@ -1,6 +1,8 @@
 node_modules/
-.next/
-.next-e2e/
+# Every build dir, however GROUNDWORK_DIST_DIR spells it. A throwaway server with its
+# own dist dir got 38 generated files committed and made eslint report 1,391 errors in
+# code nobody wrote.
+.next*/
 /out/
 /build/
 *.tsbuildinfo
