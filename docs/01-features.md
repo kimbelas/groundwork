@@ -165,6 +165,59 @@ One action writes a `CLAUDE.md` and a task checklist into a chosen real project 
 
 ---
 
+## J. The connected repository
+
+The thing this app is really for: have an idea, create the project, connect the repo — and
+planning is grounded in the code that exists, not only in what the brief claims.
+
+### J1. Connect a repository
+One optional `repo` field in `project.md` frontmatter, set from a panel on the brief page and
+hand-editable in Obsidian like everything else. No registry, no lifecycle. The path is
+validated on connect: absolute, no NUL byte, and refused if it contains the vault or sits
+inside it — either nesting would let repo-grounded planning quote the vault's own prose as
+though it were source. Reads are **read-only**, enforced by a test that fails if a writing
+`fs` call appears in `lib/repo.ts`.
+
+*Done when:* a connected repo survives a restart, and disconnecting leaves no trace in
+frontmatter.
+
+### J2. The code index
+Chunks the repo on line boundaries, hashes each file on normalised content, and embeds only
+what changed — so a second build after one commit re-embeds that commit and nothing else.
+Hashing rather than trusting the git SHA, because uncommitted edits are exactly the state a
+developer is in when they ask about their own code. Vectors are raw Float32 rather than JSON,
+which is 8 MB instead of 40 for a 5,000-chunk repo.
+
+Embeddings are **optional**: on a machine that has never fetched the model, retrieval
+degrades to keyword-only and says so. Keyword search is not a fallback but a peer — ask an
+embedding model for `expectedMtimeMs` and it returns things *about* preconditions rather than
+the four places that symbol appears.
+
+The index lives in `.groundwork/index/`, is git-ignored, and is never authoritative: every
+read returns `null` rather than throwing, because the fix for anything wrong with derived
+data is to rebuild it.
+
+*Done when:* building twice in a row does no work the second time, and a machine without the
+embedding model still gets useful results and is told why they are keyword-only.
+
+### J3. Planning grounded in the code
+A run with a connected repository is handed a file of retrieved excerpts and told the
+repository itself is unreachable — because it is: the app reads the repo in process and the
+run never learns where it is. A claim about existing code carries a citation
+(`path:startLine-endLine` plus a verbatim quote), checked by plain string match against the
+excerpts the run was actually given. The review shows the citation as evidence and flags one
+it cannot verify.
+
+Every run states what the repository contributed — how many excerpts, ranked how, or why
+none. A reader who believes the plan was checked against their code when it was not will
+trust it further than they should.
+
+*Done when:* a synthesize run on a repo-connected project produces a card citing a real file
+and line, an invented citation is flagged in review, and a project with no repository behaves
+exactly as before.
+
+---
+
 ## Deferred past v1
 
 Listed so they stay out of scope, not because they are bad:

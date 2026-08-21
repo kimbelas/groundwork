@@ -54,25 +54,52 @@ groundwork/
       vault/route.ts            GET list projects, POST create project
       vault/[slug]/route.ts     GET project bundle, PATCH file write
       cards/route.ts            POST create, PATCH move/update, DELETE
-      ai/run/route.ts           GET SSE: spawn CLI, stream progress, emit runId
-      ai/proposal/route.ts      GET proposal, POST accept/reject
+      ai/run/route.ts           GET SSE: retrieve repo context, spawn CLI, stream progress
+      ai/proposal/route.ts      GET proposal + grounding report, POST accept/reject
+      ai/revert/route.ts        POST restore the newest snapshot
+      index/[slug]/route.ts     POST build or preview the repo index, GET search it
+      log|questions|risks/      POST a decision, an answer, a register entry
       search/route.ts           GET vault-wide text search
-      export/route.ts           POST write agent-ready spec to a target folder
+      export/route.ts           (P8a, not built yet) POST write agent-ready spec
   components/
-    rail/            VaultTree, RailHeader
-    board/           Board, Column, Card, CardDetail
-    ai/              RunProgress, DiffReview, ProposalBlock
-    ui/              Rule, Chip, Pane, Tabs, CommandPalette, Backlinks
+    rail/            Rail, RailShell
+    board/           Board, Column, CardTile, CardDetail, ColumnManager
+    editor/          BriefEditor, SaveState, useAutosave, markdownHighlight
+    project/         MetaBar, NewProject, ProjectTabs, ProjectDoc,
+                     RepoConnect, RepoPanel, IndexPanel, IndexControls
+    ai/              AiPanel, ProposalReview, EnhanceCard, RevertButton, useRun
+    links/           Backlinks
+    log/ questions/ risks/ roadmap/ theme/
+    ui/              Button, IconButton, Input, Chip, Notice, Drawer,
+                     ConfirmDialog, Placeholder, Prose, cx
   lib/
-    vault.ts         the only module that touches disk
-    schema.ts        zod schemas for frontmatter and proposals
+    vault.ts         the only module that touches disk (see the exceptions below)
+    runs.ts          owns .groundwork/runs/ - proposals, excerpts, the run lock
+    repo.ts          reads a connected repository; read-only, never inside vault/
+    schema.ts        zod schemas for frontmatter
     links.ts         wiki-link parsing and the link graph
     nextAction.ts    the dashboard heuristic
+    dismiss.ts       one Escape listener and a stack of layers
+    labels.ts        codes in files, words on screen
+    ordering.ts      sparse card order arithmetic, server-side only
     git.ts           vault auto-commit (shells out to git, never imports fs)
     ai/
-      engine.ts      AiEngine interface, job types, event types
-      claude-cli.ts  Claude Code CLI implementation
-      proposal.ts    diff, apply-with-snapshot, revert
+      engine.ts      AiEngine interface and engine selection
+      claude-cli.ts  Claude Code CLI implementation; prepareRun is its seam
+      fixture.ts     deterministic engine for the e2e suite
+      context.ts     retrieves repo excerpts into the run directory
+      scope.ts       refuses to name any path outside the app root to a run
+      grounding.ts   verifies quotes against the brief and against the excerpts
+      apply.ts       apply-with-snapshot, revert
+      types.ts       job, event, proposal and run-record schemas
+    index/
+      build.ts       walk, hash, chunk, embed - incremental by content hash
+      chunk.ts       line-anchored chunking; every chunk carries its line range
+      embeddings.ts  the local model, optional by design
+      keyword.ts similarity.ts fusion.ts   the three rankers
+      retrieve.ts    hybrid search and the citation format
+      store.ts       the only module under lib/index/ that touches disk
+      eval.ts        retrieval quality as a number
   prompts/
     synthesize.md
     enhance-card.md
@@ -82,7 +109,8 @@ groundwork/
     briefs/          probe briefs + expectations, for judging prompt quality
   vault/             the data (its own git repo)
   .groundwork/
-    runs/<runId>/    proposal.json, raw stdout log
+    runs/<runId>/    proposal.json, stdout.log, context/repo-excerpts.md
+    index/<slug>/    manifest.json, chunks.json, vectors.bin - derived, git-ignored
     run.lock
   docs/
   groundwork.cmd
@@ -90,7 +118,9 @@ groundwork/
 
 ## Module boundaries
 
-Three rules keep this from turning into a pile of `fs` calls.
+Three rules keep this from turning into a pile of `fs` calls. The first has three
+exceptions, each argued rather than assumed and each listed below it;
+`scripts/fs-boundary.js` is what makes them exceptions rather than precedents.
 
 **1. `lib/vault.ts` is the only module that touches disk.**
 Route handlers call it. Server components call it. Nothing else does — no `fs` import in `components/`, none in `app/**/page.tsx`, none in `app/api/**/route.ts`. Its one neighbour is `lib/git.ts`, which shells out to the `git` binary and never imports `fs` itself, so the rule holds exactly as written and `scripts/fs-boundary.js` needs no exception for it. All of the safety lives in one file:
@@ -116,14 +146,68 @@ export type AiEvent =
   | { type: 'error'; message: string }
 
 export interface AiEngine {
-  run(job: AiJob, onEvent: (e: AiEvent) => void): Promise<{ runId: string }>
+  run(job: AiJob, runId: string, onEvent: (e: AiEvent) => void): Promise<void>
 }
 ```
 
-`claude-cli.ts` is the only implementation in v1. An `anthropic-api.ts` can be added later without any UI change — that is the entire reason the interface exists.
+The run id is passed *in* rather than returned, and nothing comes back: the route creates
+the run record and retrieves repository context before any process exists, and the proposal
+is written to the run directory. Both so a browser that disconnects mid-run loses nothing.
+
+`claude-cli.ts` is the only implementation in v1; `fixture.ts` is the deterministic engine
+the e2e suite selects with `GROUNDWORK_AI_ENGINE=fixture`. An `anthropic-api.ts` can be
+added later without any UI change — that is the entire reason the interface exists.
 
 **3. The AI never writes into `vault/`.**
-It writes `.groundwork/runs/<runId>/proposal.json`. `lib/ai/proposal.ts` validates it, diffs it against current state, and writes only what the user accepted — after snapshotting. See [04-ai-layer.md](04-ai-layer.md).
+It writes `.groundwork/runs/<runId>/proposal.json`. `lib/ai/apply.ts` validates it, diffs it against current state, and writes only what the user accepted — after snapshotting. See [04-ai-layer.md](04-ai-layer.md).
+
+### The three exceptions to rule 1
+
+Each owns a tree that is not `vault/`, and each is a weaker claim than the last.
+
+**`lib/runs.ts`** owns `.groundwork/runs/`. Keeping run artefacts out of the vault module is
+what lets the spawned CLI be granted write access to exactly one directory. It carries its
+own id validation and containment check, mirroring the vault's.
+
+**`lib/repo.ts`** owns a *third* tree: a connected repository. It never resolves inside
+`vault/` and never writes at all. Routing repo reads through `lib/vault.ts` would keep the
+letter of rule 1 and lose its reasoning — that module's contract is "every path is anchored
+at the vault root", and a function there that deliberately resolved elsewhere would make
+containment depend on which function you called. Containment is checked twice: lexically
+with `path.relative` (a prefix test reads `/repo-backup` as inside `/repo`, and Windows
+compares case-insensitively), then again against the resolved *real* path at read time,
+which is the check the lexical one cannot make — `src/leak.md` is an ordinary
+repo-relative path and only the filesystem knows it points at `~/.ssh`. The read-only
+claim is enforced by `tests/repo.test.ts`, which fails if a writing `fs` call appears in
+the module.
+
+**`lib/index/store.ts`** owns `.groundwork/index/`. The same argument as `lib/runs.ts`, and
+it is the only file under `lib/index/` that touches disk — which is what lets the chunking,
+ranking and fusion rules be tested without a filesystem.
+
+### A connected repository, and why a run never learns where it is
+
+A repo is a property of a project: one optional `repo` field in `project.md` frontmatter,
+hand-editable in Obsidian like everything else. No registry, no lifecycle.
+
+A spawned run's permissions are a **denylist** in `.claude/run-settings.json` whose globs
+are relative to the app root, and `--allowedTools` grants `Write` broadly because the CLI
+does not honour a path-scoped *allow* rule. A connected repo sits outside that root by
+definition, so no rule in that file can name it — and a path outside the root is not merely
+unlisted, it is unprotected.
+
+So the boundary is built at the other end. The app reads the repo itself, in process,
+through `lib/repo.ts`; `lib/ai/context.ts` retrieves the relevant chunks through the index
+and writes them to `.groundwork/runs/<runId>/context/repo-excerpts.md`; the run reads that
+file and is told the repository is unreachable. `assertInstructionScoped` in
+`lib/ai/scope.ts` fails any spawn whose instruction names a path outside the app root,
+because the breach is a single plausible edit — adding "the repo is at <path>" to a prompt.
+
+That is not a workaround for the sandbox. It is what retrieval requires anyway: a run left
+to grep a repo directly would bypass the index, make cost unpredictable, and put bytes into
+the model's context that the grounding check never saw. Verifying a quote means comparing it
+against bytes this process read — which is also why the excerpt file redacts the repo path
+out of chunk *text*, since a repo can contain its own absolute path in a config or a log.
 
 ## Data flow
 

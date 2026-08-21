@@ -48,6 +48,32 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
   `.groundwork/index/` (git-ignored), is rebuildable from the repo, and anything wrong
   with it is answered by rebuilding — so every read returns `null` rather than throwing.
   The vault stays the only source of truth. Derived data never gets committed as prose.
+- **The excerpt file is the whole channel between a repo and a run, and it must not name
+  the repo.** `lib/ai/context.ts` writes
+  `.groundwork/runs/<runId>/context/repo-excerpts.md` and the instruction names *that file*,
+  never a location. Chunk paths are repo-relative by construction, but chunk **text** is
+  arbitrary source and a repo can contain its own absolute path — a config, a committed log,
+  a comment — and that file is a legitimate retrieval hit. So the repo path is redacted from
+  every excerpt, both separator spellings, case-insensitively, before anything is written.
+  `assertInstructionScoped` does not cover this: it checks instructions, and this is a file.
+  `tests/ai-context.test.ts` does, and an e2e case reads the real run directory.
+- **A code citation is verified against the excerpts, never against the repo.** Re-reading
+  the repo would check a different thing than the one asked — the model saw the excerpt
+  bytes — and would mark honest citations false the moment you save a file, which is the
+  opposite of an audit trail. The quote must appear **in the excerpt it cites**, not
+  anywhere in the file: quoting file A while citing file B is the shape a plausible wrong
+  answer takes. Whitespace is forgiven, case is not; `orderFor` and `orderfor` are
+  different symbols.
+- **`groundedInCode` has three states and no `.default()`.** Absent means the run had no
+  code to cite, `null` means the code was read and settled nothing, an object is a claim the
+  app will check. A default would consume `undefined` and turn silence into a citation — the
+  `undefined`-means-not-provided bug, arriving in the one field where it fabricates
+  evidence.
+- **Repo grounding can never fail a run, and must never degrade silently.** Same rule as
+  `lib/git.ts`: a missing index, a moved repo, an unloadable model each return a status and
+  prose, and the run proceeds on the brief. But the review says which of the six outcomes
+  happened, because a reader who believes the plan was checked against their code when it
+  was not will trust it further than they should.
 - **Retrieval quality is guarded by a number, not an opinion.** `tests/index-eval.test.ts`
   gates keyword recall@5 and MRR over a fixed corpus; `pnpm eval:retrieval` loads the model
   and prints keyword / semantic / hybrid side by side. Any change to chunking, tokenizing,

@@ -4,8 +4,29 @@ Eight phases. Each one ends in something you can open in a browser and use. No p
 
 ---
 
-> **Status:** Phases 1–6 complete (2026-08-19). 226 unit tests, 130 e2e, lint and
-> typecheck clean. Phase 7 (wiki-links, backlinks, vault search) is next.
+> **Status (2026-08-21):** Phases 1–7 complete, plus a design rebuild and a three-phase
+> repository track that this roadmap predates. ~624 unit tests, ~230 e2e, lint and typecheck
+> clean. What remains is **P8a export** (feature I1, not started) and the **P8b design
+> audit**; the plan of record for both is `.claude/plans/finish-v1.md`.
+>
+> **The work this roadmap did not foresee.** Eight phases were planned; three tracks
+> happened. Phases 1–7 as written; then a design rebuild (Graphite tokens, component
+> primitives, real labels for the enums, drawers for working and modals for deciding) because
+> two earlier designs were rejected; then P1–P3, the repository track, which is the feature
+> the app is actually for and which the eight phases above never mention:
+>
+> - **P1 — connect a repository, read-only.** One optional frontmatter field. `lib/repo.ts`
+>   as the second exception to the vault-only disk rule, containment checked lexically and
+>   again against the resolved real path.
+> - **P2 — index it, and measure whether retrieval works.** Incremental by content hash,
+>   binary vectors, keyword and semantic ranking fused. `pnpm eval:retrieval` prints the
+>   numbers; `tests/index-eval.test.ts` gates the keyword floors.
+> - **P3 — plan against the code.** Excerpts retrieved in process into the run directory, a
+>   citation schema with three distinct states, and verification by string match against the
+>   bytes the model was actually shown.
+>
+> See [01-features.md](01-features.md) section J and
+> [04-ai-layer.md](04-ai-layer.md) for what each of those does.
 >
 > **Vault prose is never turned into an HTML string.** `lib/inline.ts` tokenises inline
 > emphasis and `components/ui/Prose.tsx` renders those tokens as React elements. The text
@@ -113,7 +134,7 @@ Phase track reading `roadmap.md` with per-phase card counts. Decision log with p
 
 ---
 
-## Phase 7 — Links and search
+## Phase 7 — Links and search *(shipped)*
 
 Wiki-link parsing in the index pass, slug-before-title resolution, unresolved links styled distinctly. Backlinks panel on projects and cards showing source lines. Vault-wide text search grouped by project.
 
@@ -121,7 +142,7 @@ Wiki-link parsing in the index pass, slug-before-title resolution, unresolved li
 
 ---
 
-## Phase 8 — Export and design audit
+## Phase 8 — Export and design audit *(remaining)*
 
 Export agent-ready spec: preview, then write `CLAUDE.md` plus a task checklist into a chosen real project folder, with an explicit diff before overwriting anything. Then a full pass over every screen against the anti-pattern list in [05-design-system.md](05-design-system.md).
 

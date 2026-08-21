@@ -136,14 +136,79 @@ const CardProposal = z.object({
   body: z.string(),
   acceptance: z.array(z.string()),
   groundedIn: z.string().nullable(),   // verbatim quote from the brief, or null
+  groundedInCode: GroundedInCode.nullable().optional(),   // a claim about existing code
+})
+
+const GroundedInCode = z.object({
+  path: z.string(),                    // repo-relative, as the excerpt heading spells it
+  startLine: z.number().int().positive(),
+  endLine: z.number().int().positive(),
+  quote: z.string(),                   // verbatim from that excerpt
 })
 ```
 
 `groundedIn` is the anti-invention mechanism. It must be a **verbatim substring of the brief**, checked with a plain string match at validation time — no model involved, so the check itself cannot hallucinate. A quote that doesn't match renders the card flagged **ungrounded** in the diff. `null` is allowed and honest: it renders as **inferred, not stated**, which is exactly the distinction the user needs to see. Template filler becomes obvious at a glance because it has nothing to quote.
 
+`groundedInCode` is the same mechanism for a claim about *existing code*, and it has three
+states that must not be collapsed: **absent** means this run had no code to cite, **null**
+means the code was read and settled nothing, and an **object** is a positive assertion the
+app goes and checks. There is deliberately no `.default()` anywhere in that chain — zod's
+`.default()` consumes `undefined`, so a default would turn silence into a citation and
+fabricate evidence.
+
+It is structured rather than one `"path:12-40 — quote"` string because both halves are
+checked separately: the heading must name an excerpt the app actually showed the model, and
+the quote must appear **in that excerpt** rather than anywhere in the file. Quoting one file
+while citing another is the shape a plausible wrong answer takes, and a whole-file match
+would wave it through.
+
+Whitespace is forgiven on a second attempt; case is not. Code arrives re-indented through
+JSON escaping, which is not paraphrase — but `orderFor` and `orderfor` are different
+symbols, so a mis-cased identifier is a quote from memory. Unverified code citations get
+their own warning sentence above the diff, never merged with the brief's count: one is a
+claim about what the user asked for, the other about what their code already does, and a
+reader who trusts a wrong code citation goes and edits the wrong file.
+
+Citations are review-time evidence and are not written into the vault, the same as
+`groundedIn`.
+
 Proposals never assign ids — `lib/vault.ts` assigns card and question ids at apply time, so the model cannot collide with existing ones.
 
 If validation fails, the run is marked failed and the **raw output is shown to the user**. It is never partially applied and never silently discarded.
+
+## Repository context
+
+When a project has a repository connected, planning is grounded in the code as well as the
+brief. The mechanism is one file.
+
+Before any process is spawned, `app/api/ai/run` calls `buildRepoContext` in
+`lib/ai/context.ts`. It derives a small query set from the project — headings and their
+first lines for synthesize and critique, title and acceptance criteria for enhance-card —
+searches the index for each, merges the hits round-robin so one broad query cannot crowd out
+the rest, and writes at most 8 excerpts / 6 KB to
+`.groundwork/runs/<runId>/context/repo-excerpts.md`. Each excerpt is headed with
+`path:startLine-endLine` and fenced verbatim, with the fence sized to the content so a
+markdown file full of backticks cannot break out of it.
+
+**The run is never told where the repository is.** Its permissions are a denylist anchored at
+the app root, so a path outside that root is unprotected rather than merely unlisted; the
+instruction names the excerpt file and states that the repository is unreachable, and
+`assertInstructionScoped` fails any spawn whose instruction says otherwise. The excerpt file
+also has the repo path redacted out of chunk *text*, in both separator spellings and
+case-insensitively — a repo can contain its own absolute path in a config or a committed
+log, and that file is a legitimate retrieval hit. Nothing asserts on that file at spawn
+time, so the redaction is covered by a test instead.
+
+Retrieval **never fails a run**, the same rule as `lib/git.ts`. Six outcomes are recorded on
+the run record and stated on the review: excerpts included (with how many, and whether
+semantic ranking took part), no repository connected, a repository never indexed, an index
+built from a *different* repository than the one now connected, nothing relevant found, or
+something went wrong. Saying which one happened is not decoration: a reader who believes the
+plan was checked against their code when it was not will trust it further than they should,
+and the four failure modes have four different fixes.
+
+The status is recorded before the engine starts, so a failed run still says what it was
+working from — which is exactly when someone asks.
 
 ## Diff review
 
@@ -219,6 +284,8 @@ The prompt files are as much of the product as the code. Rules that go in all th
 - **Size and confidence honestly.** Low confidence on genuinely unclear work is the correct answer and is more useful than false precision.
 - **Never propose deletions.** The user's work is not the model's to remove.
 - **Write acceptance criteria that could fail.** "Works correctly" is not a criterion. "Webhook handling is idempotent" is.
+- **Cite the code, or say nothing about it.** When a project has a connected repository the run is handed a file of excerpts and told the repository itself is unreachable. A claim about what the code already does carries `groundedInCode` quoting one of those excerpts verbatim; an invented citation is worse than omitting the field.
+- **Say when the code contradicts the brief.** Excerpts showing work already done, or done differently, are the most valuable thing retrieval surfaces. A card proposing what already exists is worse than no card — prefer an update, or a question naming the discrepancy.
 
 Archetype (`saas-mvp`, `internal-tool`, `client`, `research-spike`) is injected into the prompt and shifts emphasis — a research spike wants questions and a kill-criterion, a client project wants scope boundaries and a decision log entry per assumption.
 
