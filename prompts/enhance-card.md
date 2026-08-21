@@ -34,6 +34,15 @@ sharp criteria beat eight vague ones.
 checks by string match. `null` means "inferred, not stated" and is the honest answer when
 you are extrapolating.
 
+**`groundedInCode` cites the code, when there is any.** If you were told to read a file of
+repository excerpts, that file is the only view of the connected repository you have — the
+repository itself is not reachable, so do not go looking for it. When this card is about
+behaviour the code already has, carry `groundedInCode`: the excerpt's heading split into
+`path`, `startLine` and `endLine`, plus a `quote` copied from it verbatim. Checked by exact
+string match, so an invented citation is worse than omitting the field. This is the field
+that makes an enhancement specific to *this* codebase rather than to software in general —
+an acceptance criterion that names the function it has to change is worth five that do not.
+
 **Confidence reflects understanding.** If the card is still unclear after reading the
 brief, say so with a low number and a question — do not paper over it with detail.
 
@@ -57,7 +66,13 @@ Exactly one `update` card, carrying the id you were given.
       "confidence": 0.6,
       "body": "The expanded description.",
       "acceptance": ["A criterion that could fail"],
-      "groundedIn": "verbatim quote from the brief, or null"
+      "groundedIn": "verbatim quote from the brief, or null",
+      "groundedInCode": {
+        "path": "lib/ordering.ts",
+        "startLine": 40,
+        "endLine": 43,
+        "quote": "verbatim text from that excerpt"
+      }
     }
   ],
   "questions": [{ "text": "...", "blocks": "what this is holding up" }]

@@ -51,6 +51,86 @@ export function checkQuote(brief: string, quote: string | null): GroundingResult
   return { status: "ungrounded", quote: trimmed };
 }
 
+export type CodeGroundingStatus =
+  /** The cited excerpt exists and holds the quoted bytes. */
+  | "quoted"
+  /** Explicitly `null`: about the code, and the excerpts settled nothing. */
+  | "inferred"
+  /** Cites an excerpt that was never shown, or bytes that are not in the one it names. */
+  | "ungrounded"
+  /** No citation was made. Most claims concern the plan rather than existing code. */
+  | "none";
+
+export interface CodeGroundingResult {
+  status: CodeGroundingStatus;
+  /** `path:startLine-endLine`, as cited. Null when there was no citation. */
+  cite: string | null;
+  quote: string | null;
+}
+
+/**
+ * Verify a code citation against the excerpt file this process wrote.
+ *
+ * **Against the excerpts, never against the repository.** Re-reading the repo to check a
+ * quote would verify a different thing than the one that was asked: the model saw the
+ * excerpt bytes, so those are the bytes a citation has to match. It would also mean the
+ * check drifts the moment the developer saves a file, marking honest citations false.
+ *
+ * The quote is matched **inside the cited excerpt**, not anywhere in the file. Quoting file
+ * A while citing file B is the exact shape of a plausible wrong answer, and a whole-file
+ * match would wave it through.
+ */
+export function checkCodeQuote(
+  excerpts: string | null,
+  cite: { path: string; startLine: number; endLine: number; quote: string } | null | undefined,
+): CodeGroundingResult {
+  if (cite === undefined) return { status: "none", cite: null, quote: null };
+  if (cite === null) return { status: "inferred", cite: null, quote: null };
+
+  const heading = `${cite.path}:${cite.startLine}-${cite.endLine}`;
+  const result = (status: CodeGroundingStatus): CodeGroundingResult => ({
+    status,
+    cite: heading,
+    quote: cite.quote,
+  });
+
+  // A citation with no excerpt file behind it cannot be honest: nothing was shown.
+  if (!excerpts) return result("ungrounded");
+
+  const marker = `## ${heading}`;
+  const start = excerpts.indexOf(marker);
+  if (start === -1) return result("ungrounded");
+
+  const after = excerpts.slice(start + marker.length);
+  const next = after.indexOf("\n## ");
+  const section = next === -1 ? after : after.slice(0, next);
+
+  if (section.includes(cite.quote.trim())) return result("quoted");
+
+  /*
+   * Whitespace is collapsed for a second attempt, but case is NOT — deliberately stricter
+   * than the prose check above.
+   *
+   * Prose is hard-wrapped, so a quote crossing a line break legitimately arrives with a
+   * space where the brief has a newline; treating that as invention would train the reader
+   * to ignore warnings. Code has the same excuse for whitespace, through JSON escaping and
+   * re-indentation. It has no excuse for case: `orderFor` and `orderfor` are different
+   * symbols, and a citation that gets an identifier's case wrong is quoting from memory.
+   */
+  const flatten = (s: string) => s.replace(/\s+/g, " ").trim();
+  return result(flatten(section).includes(flatten(cite.quote)) ? "quoted" : "ungrounded");
+}
+
+export interface CodeGroundingReport {
+  cards: CodeGroundingResult[];
+  risks: CodeGroundingResult[];
+  assumptions: CodeGroundingResult[];
+  /** Claims that cite code and check out. */
+  quoted: number;
+  /** Claims that cite code the excerpts do not support. The number that matters. */
+  ungrounded: number;
+}
+
 export interface GroundingReport {
   cards: GroundingResult[];
   risks: GroundingResult[];
@@ -59,12 +139,32 @@ export interface GroundingReport {
   ungrounded: number;
   /** Total claims honestly marked as inferred. */
   inferred: number;
+  /** The same check over code citations, counted separately from the brief's. */
+  code: CodeGroundingReport;
 }
 
-export function verifyGrounding(brief: string, proposal: Proposal): GroundingReport {
+/**
+ * `excerpts` is the text of this run's repository excerpts, or null when it had none.
+ *
+ * Optional so every existing caller keeps working unchanged and gets the honest answer for
+ * a run with no code: a citation with no excerpts behind it is ungrounded, which is exactly
+ * what it is.
+ */
+export function verifyGrounding(
+  brief: string,
+  proposal: Proposal,
+  excerpts: string | null = null,
+): GroundingReport {
   const cards = proposal.cards.map((c) => checkQuote(brief, c.groundedIn));
   const risks = proposal.risks.map((r) => checkQuote(brief, r.groundedIn));
   const assumptions = proposal.assumptions.map((a) => checkQuote(brief, a.groundedIn));
+
+  const codeCards = proposal.cards.map((c) => checkCodeQuote(excerpts, c.groundedInCode));
+  const codeRisks = proposal.risks.map((r) => checkCodeQuote(excerpts, r.groundedInCode));
+  const codeAssumptions = proposal.assumptions.map((a) =>
+    checkCodeQuote(excerpts, a.groundedInCode),
+  );
+  const allCode = [...codeCards, ...codeRisks, ...codeAssumptions];
 
   const all = [...cards, ...risks, ...assumptions];
   return {
@@ -73,6 +173,13 @@ export function verifyGrounding(brief: string, proposal: Proposal): GroundingRep
     assumptions,
     ungrounded: all.filter((r) => r.status === "ungrounded").length,
     inferred: all.filter((r) => r.status === "inferred").length,
+    code: {
+      cards: codeCards,
+      risks: codeRisks,
+      assumptions: codeAssumptions,
+      quoted: allCode.filter((r) => r.status === "quoted").length,
+      ungrounded: allCode.filter((r) => r.status === "ungrounded").length,
+    },
   };
 }
 
@@ -82,14 +189,34 @@ export function verifyGrounding(brief: string, proposal: Proposal): GroundingRep
  * than as a hard rejection, because the reader is better placed to judge than a
  * threshold is.
  */
-export function proposalWarnings(brief: string, proposal: Proposal): string[] {
+export function proposalWarnings(
+  brief: string,
+  proposal: Proposal,
+  excerpts: string | null = null,
+): string[] {
   const out: string[] = [];
-  const report = verifyGrounding(brief, proposal);
+  const report = verifyGrounding(brief, proposal, excerpts);
 
   if (report.ungrounded > 0) {
     out.push(
       `${report.ungrounded} claim${report.ungrounded === 1 ? "" : "s"} quote the brief but the ` +
         `quoted text is not in it. Read those especially closely.`,
+    );
+  }
+
+  /*
+   * Kept as its own sentence rather than folded into the count above.
+   *
+   * A quote the brief does not contain and a citation the code does not contain fail
+   * differently and are read differently: the first is a claim about what the user asked
+   * for, the second a claim about what their code already does. A reader who acts on a
+   * wrong code citation goes and edits the wrong file.
+   */
+  if (report.code.ungrounded > 0) {
+    const n = report.code.ungrounded;
+    out.push(
+      `${n} claim${n === 1 ? "" : "s"} cite the repository, but the quoted code is not in the ` +
+        `excerpts this run was given. Treat ${n === 1 ? "it" : "them"} as unverified.`,
     );
   }
 

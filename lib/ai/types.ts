@@ -32,6 +32,35 @@ export type AiEvent =
  */
 const Grounded = z.string().min(1).max(600).nullable();
 
+/**
+ * The same mechanism for a claim about existing code: where it is, and the bytes that say so.
+ *
+ * Structured rather than one `"path:12-40 — quote"` string because both halves are checked,
+ * separately: the citation has to name an excerpt the app actually put in front of the model,
+ * and the quote has to appear in it. Field names match `CodeChunk` — `path`, `startLine`,
+ * `endLine` — so a citation and the chunk it came from read the same way.
+ *
+ * **Optional, and `.default()` is deliberately absent.** Absent means "this run had no code
+ * to cite"; `null` means "inferred, not read". A default would consume `undefined` and turn
+ * every uncited claim into a positive assertion about the code — the bug CLAUDE.md records
+ * from `lib/ai/apply.ts`, in the one place where it would fabricate a citation.
+ */
+export const GroundedInCodeSchema = z
+  .object({
+    /** Repo-relative, forward slashes — exactly as the excerpt heading spells it. */
+    path: z.string().min(1).max(400),
+    startLine: z.number().int().positive(),
+    endLine: z.number().int().positive(),
+    /** Verbatim from the excerpt. Checked by string match, so a paraphrase is a warning. */
+    quote: z.string().min(1).max(600),
+  })
+  .refine((c) => c.endLine >= c.startLine, {
+    message: "a citation cannot end before it starts",
+    path: ["endLine"],
+  });
+
+const GroundedInCode = GroundedInCodeSchema.nullable().optional();
+
 export const CardProposalSchema = z
   .object({
     // No `delete`. The user's work is not the model's to remove.
@@ -47,6 +76,7 @@ export const CardProposalSchema = z
     body: z.string().max(20_000),
     acceptance: z.array(z.string().min(1).max(400)).max(24),
     groundedIn: Grounded,
+    groundedInCode: GroundedInCode,
   })
   .refine((c) => c.op !== "update" || typeof c.id === "number", {
     message: "an update must name the card id it updates",
@@ -69,11 +99,13 @@ export const RiskProposalSchema = z.object({
   impact: z.enum(LIKELIHOODS),
   mitigation: z.string().max(600).default(""),
   groundedIn: Grounded,
+  groundedInCode: GroundedInCode,
 });
 
 export const AssumptionProposalSchema = z.object({
   text: z.string().min(1).max(600),
   groundedIn: Grounded,
+  groundedInCode: GroundedInCode,
 });
 
 export const QuestionProposalSchema = z.object({
@@ -100,6 +132,7 @@ export type PhaseProposal = z.output<typeof PhaseProposalSchema>;
 export type RiskProposal = z.output<typeof RiskProposalSchema>;
 export type AssumptionProposal = z.output<typeof AssumptionProposalSchema>;
 export type QuestionProposal = z.output<typeof QuestionProposalSchema>;
+export type GroundedInCode = z.output<typeof GroundedInCodeSchema>;
 
 // ---------------------------------------------------------------- run records
 

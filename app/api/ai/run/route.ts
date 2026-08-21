@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { buildRepoContext } from "@/lib/ai/context";
 import { getEngine } from "@/lib/ai/engine";
 import type { AiEvent, AiJob } from "@/lib/ai/types";
 import { VaultError } from "@/lib/errors";
@@ -114,6 +115,26 @@ export async function GET(req: Request): Promise<Response> {
 
         void (async () => {
           try {
+            /*
+             * Repository excerpts are retrieved here, before any engine exists.
+             *
+             * In the route rather than in an engine because both engines need the same
+             * answer and the run directory is the channel between them — whatever is
+             * written now is what `prepareRun` names and what the grounding check verifies
+             * against. Inside the stream's task rather than before it, because retrieval
+             * can load an embedding model and the user should be watching a progress line
+             * while that happens, not an unanswered request.
+             *
+             * It cannot fail the run: `buildRepoContext` reports a reason and returns.
+             */
+            send("step", { label: "Looking for relevant code" });
+            const context = await buildRepoContext(job, runId);
+            send("step", {
+              label: context.included
+                ? `Read ${context.excerpts} excerpt${context.excerpts === 1 ? "" : "s"} of the repository`
+                : "Planning from the brief alone",
+            });
+
             const engine = await getEngine();
             await engine.run(job, runId, onEvent);
             await updateRun(runId, { status: "ready", finishedAt: new Date().toISOString() });

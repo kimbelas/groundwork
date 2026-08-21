@@ -1,5 +1,6 @@
+import fsp from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { assertInstructionScoped, findOutsidePaths, pathCandidates } from "@/lib/ai/scope";
 
@@ -241,6 +242,93 @@ describe("prepareRun — the guard is actually installed", () => {
       code(() =>
         prepareRun({ kind: "enhance-card", slug: escaping, cardId: 1 }, RUN_ID, process.cwd()),
       ),
+    ).toBe("escapes_root");
+  });
+});
+
+/**
+ * The other half of the same wire: what the run is told when there ARE excerpts.
+ *
+ * The guard above proves a repository path cannot get into an instruction. This proves the
+ * feature that needs one does not need one — the run is handed a file inside its own
+ * directory and told the repository is unreachable, and the instruction still names nothing
+ * outside the app root.
+ *
+ * The runs root is put inside the app root here, which is where it lives in real use. That
+ * matters: a permission rule is anchored at that root and cannot match an absolute path, so
+ * the relative spelling is the case worth asserting.
+ */
+describe("prepareRun — excerpts are named, the repository is not", () => {
+  const REPO = process.platform === "win32" ? "C:\\work\\portal" : "/work/portal";
+  let runsRoot: string;
+  let runs: typeof import("@/lib/runs");
+
+  beforeEach(async () => {
+    // Inside .groundwork/, which is git-ignored, so a crashed test leaves nothing tracked.
+    runsRoot = path.join(process.cwd(), ".groundwork", `runs-scope-${process.pid}`);
+    process.env.GROUNDWORK_RUNS = runsRoot;
+    runs = await import("@/lib/runs");
+  });
+
+  afterEach(async () => {
+    delete process.env.GROUNDWORK_RUNS;
+    await fsp.rm(runsRoot, { recursive: true, force: true });
+  });
+
+  it("says nothing about code when no excerpts were written", async () => {
+    const { prepareRun } = await import("@/lib/ai/claude-cli");
+    const { instruction } = prepareRun(
+      { kind: "synthesize", slug: "alpha-portal" },
+      RUN_ID,
+      process.cwd(),
+    );
+
+    expect(instruction).not.toMatch(/excerpt/i);
+    expect(instruction).not.toMatch(/groundedInCode/);
+  });
+
+  it("names the excerpt file, relatively, once one exists", async () => {
+    await runs.writeExcerpts(RUN_ID, "# Repository excerpts\n\n## lib/ordering.ts:40-43\n");
+
+    const { prepareRun } = await import("@/lib/ai/claude-cli");
+    const { instruction } = prepareRun(
+      { kind: "synthesize", slug: "alpha-portal" },
+      RUN_ID,
+      process.cwd(),
+    );
+
+    expect(instruction).toContain(`runs-scope-${process.pid}/${RUN_ID}/context/repo-excerpts.md`);
+    expect(instruction).toContain("groundedInCode");
+    // The instruction must forbid hunting for the repo, not merely omit its location: a
+    // model short of context otherwise goes looking, and Write is granted broadly.
+    expect(instruction).toMatch(/not reachable|do not look for it/i);
+    expect(path.isAbsolute(instruction.split('"')[1] ?? "")).toBe(false);
+  });
+
+  it("still names nothing outside the app root, with excerpts in play", async () => {
+    await runs.writeExcerpts(RUN_ID, `built from ${REPO}\n`);
+
+    const { prepareRun } = await import("@/lib/ai/claude-cli");
+    const { instruction } = prepareRun(
+      { kind: "enhance-card", slug: "alpha-portal", cardId: 3 },
+      RUN_ID,
+      process.cwd(),
+    );
+
+    // The excerpt file's *contents* are not the instruction, so a repo path inside it
+    // cannot reach here — that leak is closed by redaction in lib/ai/context.ts and
+    // asserted in tests/ai-context.test.ts. What matters here is that adding the excerpt
+    // clause did not open a second route for one.
+    expect(findOutsidePaths(instruction, process.cwd())).toEqual([]);
+    expect(instruction.toLowerCase()).not.toContain(REPO.toLowerCase());
+  });
+
+  it("keeps refusing an escaping slug while excerpts exist", async () => {
+    await runs.writeExcerpts(RUN_ID, "# Repository excerpts\n");
+
+    const { prepareRun } = await import("@/lib/ai/claude-cli");
+    expect(
+      code(() => prepareRun({ kind: "synthesize", slug: "../../../etc" }, RUN_ID, process.cwd())),
     ).toBe("escapes_root");
   });
 });

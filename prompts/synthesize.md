@@ -21,6 +21,21 @@ write one JSON document to the output path, and change nothing else.
 "inferred, not stated". The app checks quotes by string match and flags any that are not
 in the brief, so an invented quote is worse than an honest `null`.
 
+**Ground a claim about existing code in the code.** When a repository is connected you
+will be told to read a file of repository excerpts. It is the only view of that code you
+have — the repository itself is not reachable, so do not go looking for it. Any card,
+risk or assumption that asserts something about what the code already does carries
+`groundedInCode`: the excerpt's own heading, split into `path`, `startLine` and `endLine`,
+plus a `quote` copied from that excerpt **verbatim**. The app checks the quote by exact
+string match against the same file, so an invented citation is worse than omitting the
+field. Omit it entirely when a claim is not about existing code; use `null` when it is
+about the code but nothing in the excerpts settles it.
+
+**Say when the code contradicts the brief.** Excerpts that show the work already done, or
+done differently, are the most valuable thing retrieval can surface. A card proposing what
+already exists is worse than no card — prefer an update, or a question naming the
+discrepancy.
+
 **Prefer a question to a guess.** Anything the brief does not settle belongs in
 `questions`, not in a confidently-worded card. An empty `questions` array on a vague
 brief is a failure, not a success.
@@ -73,7 +88,13 @@ Write exactly this shape as JSON. No markdown fence, no commentary.
       "confidence": 0.6,
       "body": "What this is and why it exists.",
       "acceptance": ["A criterion that could fail"],
-      "groundedIn": "verbatim quote from the brief, or null"
+      "groundedIn": "verbatim quote from the brief, or null",
+      "groundedInCode": {
+        "path": "lib/ordering.ts",
+        "startLine": 40,
+        "endLine": 43,
+        "quote": "verbatim text from that excerpt"
+      }
     }
   ],
   "risks": [
@@ -90,6 +111,9 @@ Write exactly this shape as JSON. No markdown fence, no commentary.
 }
 ```
 
+`groundedInCode` is optional everywhere it appears: omit it, or set it to `null`. It also
+belongs on a risk or an assumption drawn from the code.
+
 `op: "create"` must **not** include an `id` — the app assigns them. `op: "update"` must
 include the `id` of the card it changes.
 
@@ -100,3 +124,6 @@ include the `id` of the card it changes.
   snapshot and the user's judgement.
 - Do not set `stage` or `health`. Those are human judgements.
 - Do not invent a technology stack the brief does not mention.
+- Do not cite a file that is not in the excerpts, and do not cite a line range you have
+  not read. There is no partial credit: an unverifiable citation is shown to the user as a
+  warning next to your card.

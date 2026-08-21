@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 
-import { appendStdout, runPaths } from "@/lib/runs";
+import { appendStdout, hasExcerpts, runPaths } from "@/lib/runs";
 
 import { assertInstructionScoped } from "./scope";
 import type { AiEngine } from "./engine";
@@ -117,11 +117,36 @@ function friendly(toolName: string, input: Record<string, unknown>): string {
   }
 }
 
-function instructionFor(job: AiJob, outPath: string): string {
+/**
+ * What the run is told about the code, when there is any.
+ *
+ * Note what is absent: where the repository is. The run is given a file, not a location,
+ * and told plainly that looking for the repository is not an option — otherwise a model
+ * that cannot find enough in the excerpts will go hunting, which is the behaviour
+ * `assertInstructionScoped` exists to make impossible to authorise.
+ *
+ * The citation format is the excerpt headings verbatim, because `lib/ai/grounding.ts`
+ * verifies a quote by string match against that same file. Asking for a format the check
+ * does not parse would produce warnings on honest citations, which trains the reader to
+ * ignore warnings.
+ */
+function excerptClause(excerptsPath: string): string {
+  return (
+    ` Read "${excerptsPath}" first: it holds excerpts of the repository connected to this ` +
+    `project, retrieved for this run, and it is the only view of that code available — the ` +
+    `repository itself is not reachable from here, so do not look for it. When a claim is ` +
+    `about existing code, set groundedInCode to the excerpt's own heading (path:startLine-` +
+    `endLine) with a quote copied from it verbatim. The quote is checked by exact string ` +
+    `match against that file, so an invented citation is worse than an honest null.`
+  );
+}
+
+function instructionFor(job: AiJob, outPath: string, excerptsPath: string | null): string {
   const shared =
     `Write your result as JSON to "${outPath}". ` +
     `Do not create, edit or delete any file inside vault/ — the app applies changes ` +
-    `only after the user has reviewed them.`;
+    `only after the user has reviewed them.` +
+    (excerptsPath ? excerptClause(excerptsPath) : "");
 
   switch (job.kind) {
     case "synthesize":
@@ -168,11 +193,23 @@ export function prepareRun(
    * perfectly good proposal it could not save. Only fall back to the absolute path if the
    * run directory sits outside cwd, where no relative rule could apply.
    */
-  const { proposal: absoluteOut } = runPaths(runId);
-  const relativeOut = path.relative(cwd, absoluteOut).split(path.sep).join("/");
-  const outPath = relativeOut.startsWith("..") ? absoluteOut : relativeOut;
+  const { proposal: absoluteOut, excerpts: absoluteExcerpts } = runPaths(runId);
+  const underCwd = (abs: string): string => {
+    const rel = path.relative(cwd, abs).split(path.sep).join("/");
+    return rel.startsWith("..") ? abs : rel;
+  };
+  const outPath = underCwd(absoluteOut);
 
-  const instruction = instructionFor(job, outPath);
+  /*
+   * Excerpts are named only if they exist, and existence is decided here rather than by a
+   * flag from the caller. The engine seam takes (job, runId, onEvent) and both engines need
+   * the same answer, so the run directory is the channel: whatever `lib/ai/context.ts`
+   * wrote before the spawn is what the run is told about. One less argument to forget to
+   * pass through, and no way for the instruction to promise a file that is not there.
+   */
+  const excerptsPath = hasExcerpts(runId) ? underCwd(absoluteExcerpts) : null;
+
+  const instruction = instructionFor(job, outPath, excerptsPath);
 
   /*
    * Nothing outside the app root may be named to the run.
@@ -183,12 +220,14 @@ export function prepareRun(
    * enforced here rather than remembered. `lib/ai/scope.ts` carries the full argument and
    * the design that makes repo-grounded planning work without it.
    *
-   * `absoluteOut` is allowed through: it is the one path the run legitimately needs outside
-   * the root, and only when `GROUNDWORK_RUNS` points elsewhere - the fallback just above.
-   * Without it the guard rejected exactly the case it was written to permit, so no run
-   * could start on such an install at all.
+   * The two run-directory paths are allowed through: they are the only paths the run
+   * legitimately needs outside the root, and only when `GROUNDWORK_RUNS` points elsewhere -
+   * the fallback just above. Without them the guard rejected exactly the case it was
+   * written to permit, so no run could start on such an install at all. Note that both are
+   * inside the run directory; a repository path is never in this list, and adding one would
+   * be the edit this guard exists to fail.
    */
-  assertInstructionScoped(instruction, cwd, { allow: [absoluteOut] });
+  assertInstructionScoped(instruction, cwd, { allow: [absoluteOut, absoluteExcerpts] });
 
   return { instruction, outPath };
 }
