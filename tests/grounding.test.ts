@@ -464,7 +464,33 @@ describe("checkCodeQuote", () => {
     expect(checkCodeQuote(null, CITE).status).toBe("ungrounded");
   });
 
-  it("keeps null and absent apart", () => {
+it("refuses a blank quote, which used to verify against anything", () => {
+    // `"".includes(x)` is true for every x, and z.string().min(1) accepts a single space -
+    // so a citation quoting " " earned the green chip against any excerpt that existed.
+    for (const blank of [" ", "\n", "\t\t"]) {
+      expect(checkCodeQuote(EXCERPTS, { ...CITE, quote: blank }).status).toBe("ungrounded");
+    }
+  });
+
+  it("accepts the same file spelled the way a model spells it", () => {
+    /*
+     * `./src/a.ts`, `src\\a.ts`, `SRC/a.ts` are all the heading `src/a.ts`. Reporting them
+     * as invented is the failure this check must avoid above all others: a warning that
+     * fires on honest work is a warning the reader stops reading.
+     */
+    const spellings = ["./lib/ordering.ts", "lib\\ordering.ts", "LIB/Ordering.ts", " lib/ordering.ts "];
+    for (const path of spellings) {
+      expect(checkCodeQuote(EXCERPTS, { ...CITE, path }).status, path).toBe("quoted");
+    }
+  });
+
+  it("still holds the line range exactly", () => {
+    // Forgiving the range would accept a citation pointing at a different part of the file
+    // than the bytes that were checked, which is the thing being verified.
+    expect(checkCodeQuote(EXCERPTS, { ...CITE, endLine: 44 }).status).toBe("ungrounded");
+  });
+
+    it("keeps null and absent apart", () => {
     expect(checkCodeQuote(EXCERPTS, null).status).toBe("inferred");
     expect(checkCodeQuote(EXCERPTS, undefined).status).toBe("none");
   });

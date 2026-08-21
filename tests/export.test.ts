@@ -1,3 +1,4 @@
+import fsSync from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -45,6 +46,30 @@ beforeEach(async () => {
 afterEach(async () => {
   await fsp.rm(scratch, { recursive: true, force: true });
 });
+
+/**
+ * Can this machine make a directory link at all?
+ *
+ * Probed at module load, because `it.skipIf` is evaluated when the file is collected. A
+ * **junction** needs no elevation on Windows and takes the identical code path — `realpath`
+ * resolves through it exactly as it does a symlink — which is the mechanism CLAUDE.md
+ * prescribes after four symlink tests reported green here while asserting nothing.
+ */
+const LINK_TYPE: "junction" | "dir" = process.platform === "win32" ? "junction" : "dir";
+
+const CAN_LINK = (() => {
+  const probe = fsSync.mkdtempSync(path.join(os.tmpdir(), "gw-export-link-probe-"));
+  try {
+    const target = path.join(probe, "target");
+    fsSync.mkdirSync(target);
+    fsSync.symlinkSync(target, path.join(probe, "link"), LINK_TYPE);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    fsSync.rmSync(probe, { recursive: true, force: true });
+  }
+})();
 
 function input(over: Partial<ExportInput> = {}): ExportInput {
   return {
@@ -244,15 +269,71 @@ describe("validateTarget", () => {
     await expect(validateTarget(path.dirname(process.cwd()), vault())).rejects.toThrow();
   });
 
-  it("allows a subdirectory of the app root, which is the user's business", async () => {
-    // Only the root itself and its ancestors are refused. A folder underneath is theirs.
+describe("a link is not a way around the refusals", () => {
+    /*
+     * `path.resolve` is a string operation. A review pointed a junction at this app's own root,
+     * exported into it, and watched the write follow the link and replace the CLAUDE.md that
+     * governs how this app is worked on — every lexical check passed, and `fsp.stat` followed
+     * the link but only answered "is it a directory".
+     *
+     * `lib/repo.ts` resolves both sides for exactly this reason and says so. Export is the
+     * module that *writes*, so it had the weaker of the two checks.
+     */
+    it.skipIf(!CAN_LINK)("refuses a link pointing at the vault", async () => {
+      const v = path.join(scratch, "vault");
+      await fsp.mkdir(v, { recursive: true });
+      const link = path.join(scratch, "innocent-looking-folder");
+      fsSync.symlinkSync(v, link, LINK_TYPE);
+
+      await expect(validateTarget(link, v)).rejects.toThrow(/vault/i);
+    });
+
+    it.skipIf(!CAN_LINK)("refuses a link pointing at this app's own directory", async () => {
+      const link = path.join(scratch, "looks-harmless");
+      fsSync.symlinkSync(process.cwd(), link, LINK_TYPE);
+
+      await expect(validateTarget(link, path.join(scratch, "vault"))).rejects.toThrow(
+        /Groundwork/i,
+      );
+    });
+
+    it.skipIf(!CAN_LINK)("still accepts a link to somewhere legitimate", async () => {
+      // The refusal must be about where the link *lands*, not about it being a link.
+      const real = path.join(scratch, "real-project");
+      await fsp.mkdir(real, { recursive: true });
+      const link = path.join(scratch, "via-link");
+      fsSync.symlinkSync(real, link, LINK_TYPE);
+
+      expect(await validateTarget(link, path.join(scratch, "vault"))).toBe(
+        await fsp.realpath(real),
+      );
+    });
+  });
+
+    it("refuses a subdirectory of the app root too", async () => {
+    /*
+     * This asserted the opposite until a review pointed out that four separate documents -
+     * CLAUDE.md, the architecture doc, the fs-boundary allowlist and this file's own header -
+     * all said "both directions" while the code refused one. A CLAUDE.md in `<app>/lib` is
+     * read by agent tooling as instructions for that subtree, which is the same failure the
+     * rule names, one level down.
+     */
     const inside = path.join(process.cwd(), ".groundwork", "export-probe");
     await fsp.mkdir(inside, { recursive: true });
     try {
-      expect(await validateTarget(inside, vault())).toBe(path.resolve(inside));
+      await expect(validateTarget(inside, vault())).rejects.toThrow(/Groundwork/i);
     } finally {
       await fsp.rm(inside, { recursive: true, force: true });
     }
+  });
+
+  it("says which rule refused the app root, not merely that something did", async () => {
+    // With the default `<app>/vault` layout the vault check matches the app root first, so
+    // the app-root message was unreachable in production while its test passed against a
+    // vault in the temp dir. Assert the message, not just the rejection.
+    await expect(validateTarget(process.cwd(), path.join(scratch, "vault"))).rejects.toThrow(
+      /Groundwork/i,
+    );
   });
 });
 
@@ -297,6 +378,23 @@ describe("composeExport", () => {
     expect(claude).not.toMatch(/\bP1\b/);
     expect(tasks).toContain("Medium");
     expect(tasks).not.toMatch(/\bP1\b/);
+  });
+
+  it("uses words for the stage, the archetype and a likelihood too", () => {
+    /*
+     * These three were still raw. `stage: shaping` is the sharp one: labels.ts displays it as
+     * "Planning" precisely because the word collides with a board column, and this file lists
+     * a column called Shaping a few headings later. `med` is the app's private abbreviation.
+     */
+    // Stage overridden to shaping, because that is the mapping with teeth.
+    const base = input();
+    const { "CLAUDE.md": claude } = composeExport({
+      ...base,
+      meta: { ...base.meta, stage: "shaping" },
+    });
+    expect(claude).toContain("**Stage:** Planning");
+    expect(claude).not.toMatch(/\*\*Stage:\*\* shaping/);
+    expect(claude).not.toMatch(/likelihood (low|med|high)\b/);
   });
 
   it("groups the work by phase, in the order it happens", () => {
@@ -397,10 +495,8 @@ describe("previewExport and writeExport", () => {
     await fsp.writeFile(path.join(target, "CLAUDE.md"), "old", "utf8");
     // Acknowledged, because the UI would have shown it: this asserts the reporting, and
     // the refusal when it is NOT acknowledged has its own case above.
-    const result = await writeExport(
-      await previewExport(composeExport(input()), target),
-      ["CLAUDE.md"],
-    );
+    const preview = await previewExport(composeExport(input()), target);
+    const result = await writeExport(preview, [token(preview, "CLAUDE.md")]);
 
     expect(result.overwritten).toEqual(["CLAUDE.md"]);
     expect(await fsp.readFile(path.join(target, "CLAUDE.md"), "utf8")).toContain("Portal Rebuild");
@@ -447,11 +543,17 @@ describe("previewExport and writeExport", () => {
     expect(await fsp.readdir(target)).toEqual(["CLAUDE.md"]);
   });
 
+  /** What a browser sends back: the file, plus the bytes it showed the user. */
+  function token(preview: Awaited<ReturnType<typeof previewExport>>, name: string): string {
+    const file = preview.files.find((f) => f.name === name);
+    return `${name}:${file?.digest ?? ""}`;
+  }
+
   it("writes once the clobber is acknowledged", async () => {
     await fsp.writeFile(path.join(target, "CLAUDE.md"), "old\n", "utf8");
     const preview = await previewExport(composeExport(input()), target);
 
-    const result = await writeExport(preview, ["CLAUDE.md"]);
+    const result = await writeExport(preview, [token(preview, "CLAUDE.md")]);
     expect(result.overwritten).toEqual(["CLAUDE.md"]);
   });
 
@@ -460,8 +562,30 @@ describe("previewExport and writeExport", () => {
     await fsp.writeFile(path.join(target, "TASKS.md"), "old tasks\n", "utf8");
     const preview = await previewExport(composeExport(input()), target);
 
-    await expect(writeExport(preview, ["CLAUDE.md"])).rejects.toThrow(/TASKS\.md/);
+    await expect(writeExport(preview, [token(preview, "CLAUDE.md")])).rejects.toThrow(
+      /TASKS\.md/,
+    );
     expect(await fsp.readFile(path.join(target, "CLAUDE.md"), "utf8")).toBe("old\n");
+  });
+
+  it("refuses to replace a file that CHANGED after the preview", async () => {
+    /*
+     * The gap the filename version missed. The drawer does not block, so the user can read
+     * the diff, go to their editor, add a paragraph to the same file, come back and confirm
+     * - and a name-keyed acknowledgement still matched, destroying a paragraph that was
+     * never shown. Consent is to replacing particular bytes.
+     */
+    await fsp.writeFile(path.join(target, "CLAUDE.md"), "what the user saw\n", "utf8");
+    const shown = await previewExport(composeExport(input()), target);
+    const consent = token(shown, "CLAUDE.md");
+
+    await fsp.writeFile(path.join(target, "CLAUDE.md"), "written after the preview\n", "utf8");
+    const fresh = await previewExport(composeExport(input()), target);
+
+    await expect(writeExport(fresh, [consent])).rejects.toThrow(/preview again/i);
+    expect(await fsp.readFile(path.join(target, "CLAUDE.md"), "utf8")).toBe(
+      "written after the preview\n",
+    );
   });
 
   it("names only genuine surprises", async () => {
@@ -469,21 +593,48 @@ describe("previewExport and writeExport", () => {
     const preview = await previewExport(composeExport(input()), target);
 
     expect(unacknowledgedClobbers(preview, [])).toEqual(["TASKS.md"]);
-    expect(unacknowledgedClobbers(preview, ["TASKS.md"])).toEqual([]);
+    expect(unacknowledgedClobbers(preview, [token(preview, "TASKS.md")])).toEqual([]);
+    // A bare filename no longer authorises anything.
+    expect(unacknowledgedClobbers(preview, ["TASKS.md"])).toEqual(["TASKS.md"]);
     // An identical file is not a clobber, so it never needs acknowledging.
     const same = composeExport(input());
     await fsp.writeFile(path.join(target, "TASKS.md"), same["TASKS.md"], "utf8");
     expect(unacknowledgedClobbers(await previewExport(same, target), [])).toEqual([]);
   });
 
-  it("uses a temp name unique to the call, not just the process", async () => {
-    // One process writes both files of an export, and can be writing two exports at once.
-    // A pid-only temp path had them all sharing one.
-    const source = await fsp.readFile(path.join(process.cwd(), "lib", "export.ts"), "utf8");
-    const tmpLine = source.split(NL).find((l) => l.includes(".tmp`"));
-    expect(tmpLine).toBeTruthy();
-    expect(tmpLine).toContain("Date.now()");
-    expect(tmpLine).toContain("name");
+  it("survives two exports racing into the same folder", async () => {
+    /*
+     * Asserted by running it, not by grepping the source for "Date.now()" - a test that reads
+     * the implementation cannot fail for the property it names, and the property here is that
+     * two writes in the same millisecond do not collide on one temp path.
+     */
+    const a = path.join(scratch, "race-a");
+    const b = path.join(scratch, "race-b");
+    await fsp.mkdir(a, { recursive: true });
+    await fsp.mkdir(b, { recursive: true });
+
+    const [pa, pb] = await Promise.all([
+      previewExport(composeExport(input()), a),
+      previewExport(composeExport(input({ meta: { ...input().meta, name: "Other" } })), b),
+    ]);
+    await Promise.all([writeExport(pa), writeExport(pb)]);
+
+    expect((await fsp.readdir(a)).sort()).toEqual(["CLAUDE.md", "TASKS.md"]);
+    expect((await fsp.readdir(b)).sort()).toEqual(["CLAUDE.md", "TASKS.md"]);
+    expect(await fsp.readFile(path.join(b, "CLAUDE.md"), "utf8")).toContain("Other");
+  });
+
+  it("treats a file it cannot read as something to ask about", async () => {
+    // "Does not exist" and "could not be read" are different answers; conflating them made
+    // an unreadable file report as `new file` and get replaced with no confirmation. A
+    // directory in the file's place is the reproducible version of that.
+    await fsp.mkdir(path.join(target, "CLAUDE.md"), { recursive: true });
+    const preview = await previewExport(composeExport(input()), target);
+    const claude = preview.files.find((f) => f.name === "CLAUDE.md");
+
+    expect(claude?.unreadable).toBe(true);
+    expect(claude?.clobbers).toBe(true);
+    expect(unacknowledgedClobbers(preview, [])).toContain("CLAUDE.md");
   });
 
   it("ignores a filename a caller invented", async () => {
@@ -497,7 +648,7 @@ describe("previewExport and writeExport", () => {
       ...preview,
       files: [
         ...preview.files,
-        { name: "../escaped.md" as never, next: "nope", current: null, clobbers: false },
+        { name: "../escaped.md" as never, next: "nope", current: null, clobbers: false, digest: null },
       ],
     };
 
@@ -505,5 +656,49 @@ describe("previewExport and writeExport", () => {
     expect(result.written).toEqual(["CLAUDE.md", "TASKS.md"]);
     expect((await fsp.readdir(target)).sort()).toEqual(["CLAUDE.md", "TASKS.md"]);
     await expect(fsp.stat(path.join(scratch, "escaped.md"))).rejects.toThrow();
+  });
+});
+
+describe("a project whose frontmatter does not parse", () => {
+  /*
+   * `readData` swallows a YAML error and returns `{}`, so zod fills in `stage: "idea"`,
+   * `archetype: "internal-tool"` and `name: <slug>`. On the vault write path that is guarded,
+   * because a click would replace what a person typed. Export has the same problem pointing
+   * outward: it would write those three fabrications into a real file whose whole job is to
+   * brief an agent about the project.
+   */
+  let vaultDir: string;
+  let vault: typeof import("@/lib/vault");
+
+  beforeEach(async () => {
+    vaultDir = path.join(scratch, "vault");
+    await fsp.mkdir(path.join(vaultDir, "broken"), { recursive: true });
+    process.env.GROUNDWORK_VAULT = vaultDir;
+    vault = await import("@/lib/vault");
+  });
+
+  afterEach(() => {
+    delete process.env.GROUNDWORK_VAULT;
+  });
+
+  it("is refused rather than exported with invented values", async () => {
+    // An unquoted colon in a value: the classic YAML mistake, and every page still renders.
+    await fsp.writeFile(
+      path.join(vaultDir, "broken", "project.md"),
+      "---\nname: Portal: rebuild\nslug: broken\n---\n\nA brief.\n",
+      "utf8",
+    );
+
+    await expect(vault.assertProjectParses("broken")).rejects.toThrow(/does not parse/i);
+  });
+
+  it("accepts a project that parses", async () => {
+    await fsp.writeFile(
+      path.join(vaultDir, "broken", "project.md"),
+      "---\nname: Fine\nslug: broken\n---\n\nA brief.\n",
+      "utf8",
+    );
+
+    await expect(vault.assertProjectParses("broken")).resolves.toBeUndefined();
   });
 });

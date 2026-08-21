@@ -1,4 +1,4 @@
-import { excerptBodyFor } from "./excerpts";
+import { parseExcerpts } from "./excerpts";
 import type { Proposal } from "./types";
 
 /**
@@ -70,6 +70,48 @@ export interface CodeGroundingResult {
 }
 
 /**
+ * The same file and line range, spelled differently.
+ *
+ * A model writes `./src/a.ts`, `src\\a.ts` or `SRC/a.ts` for what the excerpt heading calls
+ * `src/a.ts`, and an exact heading match reports every one of those as an invented citation.
+ * That is the failure mode this whole check has to avoid — a warning that fires on honest
+ * work is a warning the reader stops reading.
+ *
+ * The **line range still has to match exactly.** Forgiving it would mean accepting a
+ * citation that points at a different part of the file than the one whose bytes were
+ * checked, which is the thing being verified.
+ */
+function normalizeCite(cite: string): string {
+  // Split at the LAST colon: the path can contain one (a drive letter), the range cannot.
+  const at = cite.lastIndexOf(":");
+  const rawPath = at === -1 ? cite : cite.slice(0, at);
+  const range = at === -1 ? "" : cite.slice(at + 1);
+
+  // Each half is trimmed on its own. Trimming the whole string left the space in
+  // `" lib/ordering.ts :40-43"` sitting inside it, which still failed to match.
+  const normalPath = rawPath
+    .trim()
+    .toLowerCase()
+    .split("\\")
+    .join("/")
+    .replace(/\/{2,}/g, "/")
+    .replace(/^\.\//, "");
+
+  return `${normalPath}:${range.trim()}`;
+}
+
+function matchingHeading(
+  sections: Map<string, string>,
+  cite: { path: string; startLine: number; endLine: number },
+): string | null {
+  const wanted = normalizeCite(`${cite.path}:${cite.startLine}-${cite.endLine}`);
+  for (const heading of sections.keys()) {
+    if (normalizeCite(heading) === wanted) return heading;
+  }
+  return null;
+}
+
+/**
  * Verify a code citation against the excerpt file this process wrote.
  *
  * **Against the excerpts, never against the repository.** Re-reading the repo to check a
@@ -99,18 +141,29 @@ export function checkCodeQuote(
   if (!excerpts) return result("ungrounded");
 
   /*
-   * The excerpt's body, bounded by the fence the writer emitted rather than by the next
-   * markdown heading.
+   * An empty quote is not a citation.
    *
-   * The heading rule looked right and was wrong: excerpt bodies are arbitrary file content,
-   * and the first real repository this met was a README whose own `## ` subheadings cut its
-   * excerpt short — so ten citations that were genuinely present came back "ungrounded".
-   * `lib/ai/excerpts.ts` owns both halves of the format now, for that reason.
+   * `"".includes(x)` is true for every x, so a quote of `" "` or `"\n"` verified against any
+   * excerpt that existed and came back with the green chip. `z.string().min(1)` accepts a
+   * single space, so the schema did not stop it either. The prose path has guarded exactly
+   * this since it was written (`checkQuote`, above) and has a test for it; this path had
+   * neither.
    */
-  const section = excerptBodyFor(excerpts, heading);
-  if (section === null) return result("ungrounded");
+  const quoted = cite.quote.trim();
+  if (quoted.length === 0) return result("ungrounded");
 
-  if (section.includes(cite.quote.trim())) return result("quoted");
+  /*
+   * The excerpt this citation names, found by parsing the file rather than searching it.
+   *
+   * `lib/ai/excerpts.ts` owns both halves of the format, because the bug this replaced was
+   * two definitions of "where does an excerpt end" — one of which a README's own `## `
+   * subheadings could truncate, and the other of which repository content could forge.
+   */
+  const sections = parseExcerpts(excerpts);
+  const section = sections.get(heading) ?? sections.get(matchingHeading(sections, cite) ?? "");
+  if (section === undefined) return result("ungrounded");
+
+  if (section.includes(quoted)) return result("quoted");
 
   /*
    * Whitespace is collapsed for a second attempt, but case is NOT — deliberately stricter
@@ -123,7 +176,7 @@ export function checkCodeQuote(
    * symbols, and a citation that gets an identifier's case wrong is quoting from memory.
    */
   const flatten = (s: string) => s.replace(/\s+/g, " ").trim();
-  return result(flatten(section).includes(flatten(cite.quote)) ? "quoted" : "ungrounded");
+  return result(flatten(section).includes(flatten(quoted)) ? "quoted" : "ungrounded");
 }
 
 export interface CodeGroundingReport {

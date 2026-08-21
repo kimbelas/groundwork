@@ -52,21 +52,32 @@ function escapeRegExp(s: string): string {
  * and a repo can perfectly well contain its own absolute path — in a config file, a
  * committed log, a comment. Writing that into the excerpt file would hand over the one
  * thing the whole design withholds, and it would do it in the file the model is told to
- * read. Both separator spellings are redacted, case-insensitively, because Windows treats
- * `C:\Repo` and `c:/repo` as one directory and `lib/repo.ts` normalises to forward slashes.
+ * read. Every spelling of the separators is redacted, case-insensitively, because Windows
+ * treats `C:\Repo` and `c:/repo` as one directory and source files escape their backslashes.
  *
  * The redaction happens before anything is written, so the bytes the model sees and the
  * bytes the grounding check compares against are the same bytes. A quote spanning a
  * redaction fails verification, which is the correct outcome and vanishingly rare.
  */
 export function redactRepoPath(text: string, repo: string): string {
-  const spellings = new Set([repo, repo.split("\\").join("/"), repo.split("/").join("\\")]);
-  let out = text;
-  for (const spelling of spellings) {
-    if (spelling.length === 0) continue;
-    out = out.replace(new RegExp(escapeRegExp(spelling), "gi"), "<repo>");
-  }
-  return out;
+  const segments = repo.split(/[\\/]+/).filter((seg) => seg.length > 0);
+  if (segments.length === 0) return text;
+
+  /*
+   * One pattern for every way a separator can be written, rather than a list of spellings.
+   *
+   * A list of three — the path, all-forward, all-back — was what shipped, and a review found
+   * it blind to the spelling that matters most on Windows: source files escape their
+   * backslashes. `"C:\\work\\portal\\dist"` in a committed `.json`, `.ts` or `.ps1`
+   * contains neither `C:\work\portal` nor `C:/work/portal` as a substring, so the repo's
+   * location went into the file the model is told to read. `.json`, `.yaml` and `.toml` are
+   * all indexable, and a committed Windows path is doubled by definition.
+   *
+   * Matching each separator as `[\\/]+` covers doubled, single and mixed in one rule, which
+   * is a smaller thing to get wrong than an enumeration nobody can prove is complete.
+   */
+  const pattern = segments.map(escapeRegExp).join("[\\\\/]+");
+  return text.replace(new RegExp(pattern, "gi"), "<repo>");
 }
 
 /**
@@ -147,47 +158,91 @@ export function composeExcerpts(hits: Hit[], repo: string): { text: string; used
 }
 
 /**
- * The body of one excerpt, found the way it was written.
+ * Every excerpt in the file, read as a structure rather than searched for as a string.
  *
- * Returns null when the file holds no excerpt under that citation — which is the answer a
- * verifier needs, because a citation of something never shown is exactly what the check
- * exists to catch.
+ * This is deliberately a single pass from the top, and that is the whole point. The previous
+ * version looked for a citation's heading *anywhere* in the file and then scanned forward to
+ * the next fence — which a review broke in both directions using nothing but ordinary
+ * repository content:
  *
- * The boundary is the fence, not the next heading. `## ` at the start of a line is ordinary
- * content in any markdown file in any repository, and treating it as a delimiter is what
- * made a README's own subheadings truncate the excerpt they were inside.
+ *  - **A forged citation verified.** Any markdown file that writes `## src/secret.ts:1-40`
+ *    above a fenced block — a design doc, a changelog, this project's own docs — becomes an
+ *    excerpt heading as far as a string search is concerned. A model could then cite
+ *    `src/secret.ts` and have the quote confirmed, for a file that was never retrieved. That
+ *    is fabrication passing review looking verified, which this module exists to prevent, and
+ *    repository bytes reach the model's context, so it is reachable on purpose as well as by
+ *    accident.
+ *  - **An honest citation shadowed.** If an earlier excerpt's body contained
+ *    `## b.ts:1-10`, a real citation of `b.ts:1-10` was verified against *that* text instead
+ *    of the real excerpt, and failed.
+ *
+ * Walking the file in order fixes both, because a body is consumed as a body: once the parser
+ * enters a fenced block it reads to the matching fence, so no line inside a body is ever
+ * examined as a heading. The fence is safe to trust as a boundary because `fenceFor` sizes it
+ * longer than any run of backticks in the content it wraps.
+ */
+export function parseExcerpts(excerpts: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const lines = excerpts.split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const heading = /^## (.+?)\s*$/.exec(lines[i] ?? "");
+    if (!heading) continue;
+
+    const cite = heading[1];
+    if (!cite) continue;
+
+    // Find this section's opening fence. Another heading first means a malformed section;
+    // skip it rather than reading past into the next one.
+    let fence: string | null = null;
+    let j = i + 1;
+    for (; j < lines.length; j += 1) {
+      const line = lines[j] ?? "";
+      const opening = /^(`{3,})\s*$/.exec(line);
+      if (opening) {
+        fence = opening[1] ?? null;
+        break;
+      }
+      if (/^## /.test(line)) break;
+    }
+    if (!fence) continue;
+
+    const body: string[] = [];
+    let closed = false;
+    for (j += 1; j < lines.length; j += 1) {
+      if ((lines[j] ?? "").trimEnd() === fence) {
+        closed = true;
+        break;
+      }
+      body.push(lines[j] ?? "");
+    }
+
+    /*
+     * An unterminated fence means a truncated file: record nothing, and resume scanning after
+     * the heading rather than after the body, so a half-written last section cannot verify a
+     * quote and cannot swallow the sections above it.
+     */
+    if (!closed) continue;
+
+    // First occurrence wins. Chunk ids are unique, so a duplicate heading is malformed input,
+    // and the earlier one is the one the reader would believe.
+    if (!out.has(cite)) out.set(cite, body.join("\n"));
+
+    // Resume after the closing fence: every line of that body has now been consumed as body.
+    i = j;
+  }
+
+  return out;
+}
+
+/**
+ * The body of one excerpt, or null when the file holds no excerpt under that citation.
+ *
+ * Null is the answer a verifier needs: a citation of something never shown is exactly what
+ * the check exists to catch.
  */
 export function excerptBodyFor(excerpts: string, cite: string): string | null {
-  const lines = excerpts.split(/\r?\n/);
-  const marker = `## ${cite}`;
-
-  let i = lines.findIndex((l) => l.trimEnd() === marker);
-  if (i === -1) return null;
-
-  // Scan to this excerpt's opening fence. Hitting another excerpt's heading first means the
-  // file is malformed; returning null beats returning the neighbour's body.
-  let fence: string | null = null;
-  for (i += 1; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-    const opening = /^(`{3,})\s*$/.exec(line);
-    if (opening) {
-      fence = opening[1] ?? null;
-      i += 1;
-      break;
-    }
-    if (line.startsWith("## ")) return null;
-  }
-  if (!fence) return null;
-
-  const body: string[] = [];
-  for (; i < lines.length; i += 1) {
-    if ((lines[i] ?? "").trimEnd() === fence) return body.join("\n");
-    body.push(lines[i] ?? "");
-  }
-
-  // An unterminated fence means a truncated file; treat it as nothing rather than as
-  // everything, so a half-written excerpt cannot verify a quote.
-  return null;
+  return parseExcerpts(excerpts).get(cite) ?? null;
 }
 
 export type { CodeChunk, Hit };

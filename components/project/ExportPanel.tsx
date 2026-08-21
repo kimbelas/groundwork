@@ -14,6 +14,8 @@ interface FilePreview {
   next: string;
   current: string | null;
   clobbers: boolean;
+  unreadable?: boolean;
+  digest: string | null;
 }
 
 interface Preview {
@@ -139,6 +141,13 @@ export function ExportPanel({ slug, name }: { slug: string; name: string }) {
             className="stack export-form"
             onSubmit={(e) => {
               e.preventDefault();
+              /*
+               * Clearing the result here is what makes a second export possible at all. It
+               * was cleared only when the path field changed, so after one successful write
+               * the button stayed disabled and a new preview rendered nothing — the panel
+               * exported once per page load and then looked broken.
+               */
+              setResult(null);
               if (target.trim().length > 0) void send(false);
             }}
           >
@@ -193,7 +202,9 @@ export function ExportPanel({ slug, name }: { slug: string; name: string }) {
                 <div className="export-file" key={file.name} data-testid="export-file">
                   <div className="row export-file-head">
                     <span className="mono">{file.name}</span>
-                    {file.current === null ? (
+                    {file.unreadable ? (
+                      <Chip tone="blocked">there, but unreadable</Chip>
+                    ) : file.current === null ? (
                       <Chip tone="done">new file</Chip>
                     ) : file.clobbers ? (
                       <Chip tone="blocked">would replace</Chip>
@@ -246,7 +257,12 @@ export function ExportPanel({ slug, name }: { slug: string; name: string }) {
           confirmLabel="Replace"
           danger
           busy={busy}
-          onConfirm={() => void send(true, clobbering.map((f) => f.name))}
+          onConfirm={() =>
+            void send(
+              true,
+              clobbering.map((f) => `${f.name}:${f.digest ?? ""}`),
+            )
+          }
           onCancel={() => setConfirming(false)}
           testId="export-confirm"
         />

@@ -489,6 +489,34 @@ export async function getProject(slug: string): Promise<Project> {
   };
 }
 
+/**
+ * Refuse a project whose `project.md` frontmatter does not parse.
+ *
+ * The two patch functions below check this before writing, because `readData` swallows a YAML
+ * error and returns `{}` — so zod fills the gaps and a write replaces what a person typed
+ * with fabricated values. Exported here because **export has the same problem in a different
+ * place**: it does not write the vault, it writes a `CLAUDE.md` into a real repository, and a
+ * fabricated `name`, `stage` and `archetype` in the file whose whole job is to brief an agent
+ * is the same defect wearing different clothes.
+ *
+ * The raw text never leaves this module, which is the point: a caller outside it cannot read
+ * the file to ask the question itself.
+ */
+export async function assertProjectParses(slug: string): Promise<void> {
+  assertSlug(slug);
+  const raw = await readIfPresent(projectPath(vaultRoot(), slug, PROJECT_FILE));
+  if (raw === null) throw new VaultError("not_found", `No project ${slug}`);
+
+  if (hasBrokenFrontmatter(raw)) {
+    throw new VaultError(
+      "invalid_document",
+      `${PROJECT_FILE} has frontmatter that does not parse as YAML, so the app cannot tell ` +
+        `what this project's name, stage or archetype are. Fix it in an editor first — ` +
+        `exporting now would write defaults into a real file as though they were facts.`,
+    );
+  }
+}
+
 export async function getQuestions(slug: string): Promise<Question[]> {
   assertSlug(slug);
   const raw = await readIfPresent(projectPath(vaultRoot(), slug, QUESTIONS_FILE));

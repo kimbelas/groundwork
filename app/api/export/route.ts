@@ -10,7 +10,15 @@ import {
 } from "@/lib/export";
 import { readJson, route } from "@/lib/http";
 import { assertSlug } from "@/lib/paths";
-import { readAux, getLog, getProject, getQuestions, getRisks, vaultRoot } from "@/lib/vault";
+import {
+  assertProjectParses,
+  readAux,
+  getLog,
+  getProject,
+  getQuestions,
+  getRisks,
+  vaultRoot,
+} from "@/lib/vault";
 import { RoadmapSchema } from "@/lib/schema";
 
 export const dynamic = "force-dynamic";
@@ -21,14 +29,17 @@ const Body = z.object({
   /** `false` composes and reports; `true` writes. Never inferred from anything else. */
   confirm: z.boolean(),
   /**
-   * Files the browser has shown the user as being replaced.
+   * `name:digest` for each file the browser has shown the user as being replaced.
+   *
+   * A digest rather than a bare name, because consent is to replacing particular bytes: a
+   * file edited between the preview and the click is no longer the file that was shown.
    *
    * `.default([])` is safe here, unusually — it fails *closed*. An absent list means
    * "nothing was acknowledged", so any file the fresh preview would replace stops the
    * write. The usual danger with a default is that it invents consent; this one withholds
    * it.
    */
-  acknowledge: z.array(z.enum(EXPORT_FILES)).max(EXPORT_FILES.length).default([]),
+  acknowledge: z.array(z.string().max(200)).max(EXPORT_FILES.length).default([]),
 });
 
 /**
@@ -39,6 +50,21 @@ const Body = z.object({
  * source.
  */
 async function gather(slug: string): Promise<ExportInput> {
+  /*
+   * Refuse a project whose frontmatter did not parse.
+   *
+   * `readData` swallows a YAML syntax error and returns `{}` so one bad file stays one bad
+   * file instead of killing a page. That is right on the read path and destructive here,
+   * because zod then fills the gaps: `name` becomes the slug, `stage` becomes "idea",
+   * `archetype` becomes "internal-tool". Export would write those three fabrications over a
+   * real file, in the one artefact whose whole job is to brief an agent about the project.
+   *
+   * Hand-edit `name: Portal: rebuild` in Obsidian — an unquoted colon, the classic YAML
+   * mistake — and every page still renders, which is exactly why this has to be checked at
+   * the point of writing. Both vault patch functions already do the same.
+   */
+  await assertProjectParses(slug);
+
   const project = await getProject(slug);
   const [questions, risks, log, roadmap] = await Promise.all([
     getQuestions(slug),

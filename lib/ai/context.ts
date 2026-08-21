@@ -284,9 +284,12 @@ export async function buildRepoContext(job: AiJob, runId: string): Promise<RepoC
       ...(semantic ? {} : { reason: degraded ?? "Excerpts were chosen by keyword matching only." }),
     };
   } catch (e) {
-    return none(
-      "unavailable",
-      `The repository could not be searched for this run: ${(e as Error).message}`,
-    );
+    /*
+     * `String(e)` rather than `(e as Error).message`: a rejection with null or undefined
+     * would make the message expression itself throw, out of the catch block, and this
+     * function's one hard promise is that it never throws — the run route depends on it.
+     */
+    const reason = e instanceof Error ? e.message : String(e);
+    return none("unavailable", `The repository could not be searched for this run: ${reason}`);
   }
 }

@@ -51,8 +51,16 @@ export const GroundedInCodeSchema = z
     path: z.string().min(1).max(400),
     startLine: z.number().int().positive(),
     endLine: z.number().int().positive(),
-    /** Verbatim from the excerpt. Checked by string match, so a paraphrase is a warning. */
-    quote: z.string().min(1).max(600),
+    /**
+     * Verbatim from the excerpt. Checked by string match, so a paraphrase is a warning.
+     *
+     * `.min(1)` accepts a single space, and `"".includes(x)` is true for every x — so a
+     * citation quoting `" "` verified against any excerpt that existed. Content, not length.
+     */
+    quote: z
+      .string()
+      .max(600)
+      .refine((q) => q.trim().length > 0, { message: "a quote cannot be blank" }),
   })
   .refine((c) => c.endLine >= c.startLine, {
     message: "a citation cannot end before it starts",

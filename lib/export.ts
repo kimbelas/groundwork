@@ -1,9 +1,16 @@
+import { createHash } from "node:crypto";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
 import { VaultError } from "./errors";
 import { isInside } from "./repo";
-import { priorityLabel, sizeLabel } from "./labels";
+import {
+  archetypeLabel,
+  likelihoodLabel,
+  priorityLabel,
+  sizeLabel,
+  stageLabel,
+} from "./labels";
 import type { Assumption, CardMeta, Phase, ProjectMeta, Question, Risk } from "./schema";
 
 /**
@@ -131,7 +138,15 @@ function composeClaudeMd(input: ExportInput): string {
 
   let out = `# ${meta.name}\n\n`;
   out += `Planned in Groundwork. This file is generated — edit the plan there, not here.\n\n`;
-  out += `**Stage:** ${meta.stage} · **Archetype:** ${meta.archetype}\n\n`;
+  /*
+   * Labels, not codes — the same rule the cards below follow, and it was missed here.
+   *
+   * `stage: shaping` is the sharp one: `lib/labels.ts` deliberately displays it as "Planning"
+   * because the word collides with a board column and a roadmap phase, and this file lists a
+   * column called Shaping two headings later. An exported file is read by someone with no key
+   * to the vault's private vocabulary.
+   */
+  out += `**Stage:** ${stageLabel(meta.stage)} · **Archetype:** ${archetypeLabel(meta.archetype)}\n\n`;
   out += `---\n\n`;
 
   out += heading("The brief");
@@ -183,7 +198,10 @@ function composeClaudeMd(input: ExportInput): string {
     out += bullets(
       risks.map(
         (r) =>
-          `${r.text} — likelihood ${r.likelihood}, impact ${r.impact}` +
+          // `med` is this app's private abbreviation - the exact one that got a whole
+          // proposal rejected when a model wrote "medium" instead.
+          `${r.text} — likelihood ${likelihoodLabel(r.likelihood)}, ` +
+          `impact ${likelihoodLabel(r.impact)}` +
           `${r.mitigation ? `. Mitigation: ${r.mitigation}` : ""}`,
       ),
     );
@@ -270,9 +288,45 @@ export async function validateTarget(input: unknown, vaultPath: string): Promise
     );
   }
 
-  const target = path.resolve(raw);
-  const vault = path.resolve(vaultPath);
-  const appRoot = path.resolve(process.cwd());
+  /*
+   * Resolved through links before anything is compared, and the comparison is done on the
+   * real paths.
+   *
+   * `path.resolve` is a string operation. A review pointed a junction at this app's own root
+   * — `mklink /J C:\tmp\gw C:\...\groundwork`, which needs no elevation on Windows —
+   * exported into it, and watched the write follow the link and replace the CLAUDE.md that
+   * governs how this app is worked on. Every lexical check passed, and `fsp.stat` followed
+   * the link but only answered "is it a directory".
+   *
+   * `lib/repo.ts` already resolves both sides for exactly this reason, and says so: "a
+   * symlink is the whole reason: C:\work\repo pointing at the vault would pass a lexical
+   * nesting test". Export is the module that *writes*, so it had the weaker check of the two.
+   */
+  const requested = path.resolve(raw);
+
+  let target: string;
+  try {
+    target = await fsp.realpath(requested);
+  } catch {
+    throw new VaultError(
+      "not_found",
+      `No folder at ${requested}. Create it first — export will not make directories, because ` +
+        `a typo should fail rather than scatter files.`,
+    );
+  }
+
+  const real = async (p: string): Promise<string> => {
+    try {
+      return await fsp.realpath(p);
+    } catch {
+      // A vault or app root that cannot be resolved is not a reason to allow a write; fall
+      // back to the lexical path, which is strictly no weaker than comparing nothing.
+      return path.resolve(p);
+    }
+  };
+
+  const vault = await real(vaultPath);
+  const appRoot = await real(process.cwd());
 
   /*
    * The vault is refused in both directions.
@@ -290,28 +344,29 @@ export async function validateTarget(input: unknown, vaultPath: string): Promise
   }
 
   /*
-   * And this application's own root, which is the dangerous near-miss: exporting here
-   * overwrites the CLAUDE.md that governs how this app is worked on. Only the root itself
-   * and its ancestors are refused; a subdirectory is the user's business.
+   * And this application's own tree, in both directions.
+   *
+   * The root itself is the dangerous near-miss — exporting there overwrites the CLAUDE.md
+   * that governs how this app is worked on. But a *subdirectory* is barely better: agent
+   * tooling reads a CLAUDE.md as directory-scoped instructions for the subtree it sits in, so
+   * `<app>/lib/CLAUDE.md` is the same failure one level down, plus untracked files in the
+   * checkout.
+   *
+   * This used to refuse only the root and its ancestors, while CLAUDE.md, the architecture
+   * doc, the fs-boundary allowlist and this module's own contract all said "both directions"
+   * — four descriptions of a guard that did something narrower. The code moved to match the
+   * prose rather than the reverse, because the prose is what the rule is for.
    */
-  if (isInside(target, appRoot)) {
+  if (isInside(target, appRoot) || isInside(appRoot, target)) {
     throw new VaultError(
       "escapes_root",
-      "That folder is Groundwork's own directory (or contains it). Exporting there would " +
-        "overwrite this app's CLAUDE.md.",
+      "That folder is inside Groundwork's own directory (or contains it). Exporting there " +
+        "would write agent instructions into this app's tree.",
     );
   }
 
-  let stat: Awaited<ReturnType<typeof fsp.stat>>;
-  try {
-    stat = await fsp.stat(target);
-  } catch {
-    throw new VaultError(
-      "not_found",
-      `No folder at ${target}. Create it first — export will not make directories, because ` +
-        `a typo should fail rather than scatter files.`,
-    );
-  }
+  // `realpath` above already proved it exists; this is only "is it a folder".
+  const stat = await fsp.stat(target);
   if (!stat.isDirectory()) {
     throw new VaultError("invalid_document", `${target} is a file, not a folder.`);
   }
@@ -325,10 +380,41 @@ export interface ExportFilePreview {
   name: ExportFile;
   /** What would be written. */
   next: string;
-  /** What is there now, or null when the file does not exist yet. */
+  /** What is there now, or null when the file does not exist — or could not be read. */
   current: string | null;
-  /** True when the file exists and differs — the case that needs a decision. */
+  /** True when something is there that a write would replace. Needs a decision. */
   clobbers: boolean;
+  /**
+   * Something is there but its contents are unknown — locked, denied, unreadable.
+   *
+   * Distinct from `current: null` because the two demand opposite behaviour: a file that is
+   * not there needs no permission, and a file that cannot be read needs more of it than
+   * usual, since the preview cannot show what would be lost.
+   */
+  unreadable?: boolean;
+  /**
+   * A digest of what is there now, and the token an overwrite is authorised against.
+   *
+   * A filename was not enough. The drawer deliberately does not block, so a user can preview
+   * "would replace", read the diff, go to their editor, add a paragraph to that same file,
+   * come back and click Replace — and the name still matched, so the paragraph they had just
+   * written was destroyed having never been shown. This is `expectedMtimeMs` for a file
+   * outside the vault: consent is to replacing *these bytes*, not *this path*.
+   */
+  digest: string | null;
+}
+
+/**
+ * A short digest of the bytes an overwrite would destroy.
+ *
+ * `null` when there is nothing there — nothing to authorise. A file that exists but could not
+ * be read gets a digest that cannot match anything, so it can never be silently confirmed:
+ * the only way past it is a preview that can read the file.
+ */
+function digestOf(current: string | null, unreadable: boolean): string | null {
+  if (unreadable) return "unreadable";
+  if (current === null) return null;
+  return createHash("sha256").update(current, "utf8").digest("hex").slice(0, 16);
 }
 
 export interface ExportPreview {
@@ -351,18 +437,40 @@ export async function previewExport(
   for (const name of EXPORT_FILES) {
     const next = contents[name];
     let current: string | null = null;
+    let unreadable = false;
+
     try {
       current = await fsp.readFile(path.join(target, name), "utf8");
-    } catch {
-      current = null;
+    } catch (e) {
+      /*
+       * "Does not exist" and "could not be read" are different answers, and conflating them
+       * inverted the whole contract: a locked or unreadable file was reported as `new file`,
+       * needed no acknowledgement, and got replaced without anyone seeing it.
+       *
+       * Anything that is not ENOENT means something IS there. It counts as a clobber whose
+       * contents are unknown, which is a thing the user must be asked about rather than
+       * quietly written over.
+       */
+      unreadable = (e as NodeJS.ErrnoException).code !== "ENOENT";
     }
-    files.push({ name, next, current, clobbers: current !== null && current !== next });
+
+    files.push({
+      name,
+      next,
+      current,
+      clobbers: unreadable || (current !== null && current !== next),
+      ...(unreadable ? { unreadable: true } : {}),
+      digest: digestOf(current, unreadable),
+    });
   }
 
   return { target, files };
 }
 
 const TRANSIENT_WRITE_ERRORS = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+/** Distinguishes two writes in the same millisecond; see `writeOne`. */
+let writeSeq = 0;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -382,9 +490,15 @@ async function writeOne(target: string, name: ExportFile, contents: string): Pro
    * files of two simultaneous exports - the same temp path. `lib/vault.ts` adds a timestamp
    * for the same reason.
    */
+  /*
+   * Unique per call. `Date.now()` alone is per millisecond, and two exports entering here in
+   * the same millisecond for the same filename collided on one temp path — the second rename
+   * failing ENOENT, which is not retried, after the first had already moved the file.
+   */
+  writeSeq += 1;
   const tmp = path.join(
     target,
-    `.groundwork-export-${process.pid}-${Date.now().toString(36)}-${name}.tmp`,
+    `.groundwork-export-${process.pid}-${Date.now().toString(36)}-${writeSeq}-${name}.tmp`,
   );
 
   try {
@@ -402,7 +516,21 @@ async function writeOne(target: string, name: ExportFile, contents: string): Pro
   } catch (e) {
     // The temp file is this module's own and is removed only on a failed write of it.
     await fsp.rm(tmp, { force: true }).catch(() => {});
-    throw e;
+
+    /*
+     * Wrapped, so the drawer shows a sentence rather than an errno.
+     *
+     * A directory sitting where `CLAUDE.md` should be produces EISDIR on the rename, which
+     * survives all five retries and reached the browser as a raw Node error. The message
+     * names the file, because with two files to write the reader needs to know which one
+     * stopped — and that the other may already be on disk.
+     */
+    const code = (e as NodeJS.ErrnoException).code ?? "";
+    throw new VaultError(
+      "invalid_document",
+      `Could not write ${name} into ${target}${code ? ` (${code})` : ""}. ` +
+        `Check that nothing is holding that file open and that ${name} is not a folder.`,
+    );
   }
 }
 
@@ -427,7 +555,17 @@ export function unacknowledgedClobbers(
   acknowledged: readonly string[],
 ): ExportFile[] {
   const seen = new Set(acknowledged);
-  return preview.files.filter((f) => f.clobbers && !seen.has(f.name)).map((f) => f.name);
+  /*
+   * Matched on `name:digest`, not on `name`.
+   *
+   * The first version keyed on the filename, which caught a file that *appeared* in the gap
+   * and missed one that *changed* in it — so content written after the preview was destroyed
+   * unseen, which is the same failure with a different cause. The digest makes the consent
+   * specific to the bytes the user was actually shown.
+   */
+  return preview.files
+    .filter((f) => f.clobbers && !seen.has(`${f.name}:${f.digest ?? ""}`))
+    .map((f) => f.name);
 }
 
 /**
@@ -438,9 +576,10 @@ export function unacknowledgedClobbers(
  * `EXPORT_FILES`, never by anything a caller passes — a preview naming a third path writes
  * nothing.
  *
- * `acknowledged` names the files the caller has shown the user as being replaced. Anything
- * this preview would replace that is not in that list stops the write, because the user's
- * decision was made about a different state of the folder than the one on disk now.
+ * `acknowledged` holds `name:digest` for each file the caller has shown the user as being
+ * replaced. Anything this preview would replace that is not in that list stops the write —
+ * whether it appeared since the preview or merely changed, because either way the decision
+ * was made about a state of the folder that is no longer on disk.
  */
 export async function writeExport(
   preview: ExportPreview,
@@ -450,9 +589,9 @@ export async function writeExport(
   if (surprises.length > 0) {
     throw new VaultError(
       "conflict",
-      `${surprises.join(" and ")} ${surprises.length === 1 ? "was" : "were"} created or ` +
-        `changed in that folder since the preview. Preview again to see what would be ` +
-        `replaced.`,
+      `${surprises.join(" and ")} ${surprises.length === 1 ? "is" : "are"} not what the ` +
+        `preview showed — created, changed, or unreadable since. Preview again to see what ` +
+        `would be replaced.`,
     );
   }
 

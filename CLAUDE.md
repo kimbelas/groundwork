@@ -45,13 +45,15 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
   everything a user had typed with fabricated values. Both patch functions call
   `hasBrokenFrontmatter` and throw `invalid_document`; the file needs a human.
 - **`lib/export.ts` is the fourth exception, and the only one that writes outside this
-  app.** The other three own a directory — two inside the app root, and `lib/repo.ts` a
-  third tree it *never writes to at all*, which is the whole of that argument and export
-  cannot borrow it. So it carries its own contract: exactly two filenames (`CLAUDE.md`,
+  app.** The other three are `lib/runs.ts`, `lib/index/store.ts` and `lib/repo.ts` — two own
+  a directory inside the app root, and the third owns a tree it *never writes to at all*,
+  which is the whole of that argument and export cannot borrow it. So it carries its own contract: exactly two filenames (`CLAUDE.md`,
   `TASKS.md`), both constants in the module and neither taken from a caller; into an
   **existing** directory only, never created, because a typo should fail rather than scatter
-  files; the vault and this app's own root refused in both directions (the second is the
-  dangerous near-miss — it would overwrite the instructions this app runs under); nothing
+  files; the vault and this app's own tree refused in both directions, subdirectories
+  included (the near-miss is this app's own root — it would overwrite the instructions this
+  app runs under — and `<app>/lib/CLAUDE.md` is the same failure one level down, since agent
+  tooling reads it as instructions for that subtree); nothing
   deleted or renamed but its own temp file; and a preview of what would be overwritten
   before anything is — **carried as a precondition, not a courtesy.** `writeExport` refuses
   to replace a file the caller has not said it showed the user, because "never clobbers

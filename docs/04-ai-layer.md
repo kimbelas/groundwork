@@ -185,10 +185,15 @@ Before any process is spawned, `app/api/ai/run` calls `buildRepoContext` in
 `lib/ai/context.ts`. It derives a small query set from the project — headings and their
 first lines for synthesize and critique, title and acceptance criteria for enhance-card —
 searches the index for each, merges the hits round-robin so one broad query cannot crowd out
-the rest, and writes at most 8 excerpts / 6 KB to
+the rest, and writes at most 8 excerpts / 16 KB to
 `.groundwork/runs/<runId>/context/repo-excerpts.md`. Each excerpt is headed with
 `path:startLine-endLine` and fenced verbatim, with the fence sized to the content so a
 markdown file full of backticks cannot break out of it.
+
+The 16 KB is measured rather than chosen: at 6 KB a single 6.8 KB README consumed the whole
+budget on a real repository and starved the file to one excerpt, so a run received a project's
+README and no source at all. An excerpt that does not fit is now skipped rather than ending
+the loop.
 
 **The run is never told where the repository is.** Its permissions are a denylist anchored at
 the app root, so a path outside that root is unprotected rather than merely unlisted; the

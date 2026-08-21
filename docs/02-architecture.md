@@ -120,7 +120,7 @@ groundwork/
 
 ## Module boundaries
 
-Three rules keep this from turning into a pile of `fs` calls. The first has three
+Three rules keep this from turning into a pile of `fs` calls. The first has four
 exceptions, each argued rather than assumed and each listed below it;
 `scripts/fs-boundary.js` is what makes them exceptions rather than precedents.
 
@@ -163,9 +163,10 @@ added later without any UI change — that is the entire reason the interface ex
 **3. The AI never writes into `vault/`.**
 It writes `.groundwork/runs/<runId>/proposal.json`. `lib/ai/apply.ts` validates it, diffs it against current state, and writes only what the user accepted — after snapshotting. See [04-ai-layer.md](04-ai-layer.md).
 
-### The three exceptions to rule 1
+### The four exceptions to rule 1
 
-Each owns a tree that is not `vault/`, and each is a weaker claim than the last.
+Each owns a tree that is not `vault/`, and each is a weaker claim than the last — which is
+why the fourth needed a contract of its own rather than an appeal to the other three.
 
 **`lib/runs.ts`** owns `.groundwork/runs/`. Keeping run artefacts out of the vault module is
 what lets the spawned CLI be granted write access to exactly one directory. It carries its
@@ -192,8 +193,10 @@ The three above own a directory; `lib/repo.ts` reaches a third tree but never wr
 which is the whole of its argument and export cannot borrow it. So it carries its own
 contract: two filenames, both constants in the module and neither taken from a caller; an
 existing directory only, never created, because a typo should fail rather than scatter files;
-the vault and this app's own root refused in both directions — the second being the dangerous
-near-miss, since it would overwrite the instructions this app runs under; nothing deleted or
+the vault and this app's own tree refused in both directions — the near-miss being this app's
+own root, since exporting there would overwrite the instructions it runs under, and a
+subdirectory being the same failure one level down, because agent tooling reads a `CLAUDE.md`
+as instructions for the subtree it sits in; nothing deleted or
 renamed but its own temp file; and a preview of what would be overwritten before anything is.
 
 That last one is a precondition rather than a courtesy: `writeExport` takes the list of files

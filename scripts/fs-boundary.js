@@ -42,7 +42,8 @@ const ALLOWED = new Set([
    *
    * So it carries its own contract instead: exactly two filenames, both constants in the
    * module and neither taken from a caller; into an existing directory only, never created;
-   * the vault and this app's own root refused in both directions; no delete or rename of
+   * the vault and this app's own tree refused in both directions, subdirectories included; no
+   * delete or rename of
    * anything but its own temp file; and a preview of what it would overwrite before it
    * writes. tests/export.test.ts scans the file and fails if any of that stops being true,
    * the same way tests/repo.test.ts enforces read-only.
