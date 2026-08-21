@@ -4,10 +4,16 @@ Eight phases. Each one ends in something you can open in a browser and use. No p
 
 ---
 
-> **Status (2026-08-21):** Phases 1–7 complete, plus a design rebuild and a three-phase
-> repository track that this roadmap predates. ~624 unit tests, ~230 e2e, lint and typecheck
-> clean. Export (feature I1) shipped on 2026-08-21; what remains is the **P8b design
-> audit**. The plan of record is `.claude/plans/finish-v1.md`.
+> **Status (2026-08-21): all eight phases complete**, plus a design rebuild and a
+> three-phase repository track that this roadmap predates. 657 unit tests, 238 e2e, lint and
+> typecheck clean, both gates clean, retrieval numbers unmoved from P2.
+>
+> One thing is outstanding rather than done: the **live-model half of the verification script
+> below** (steps 3, 4, 5, 7). Those need a real spawn per run and what they test is prompt
+> quality, which this document already says is judged by hand. P3 changed `instructionFor`
+> and all three prompt files, so the real CLI path is asserted by unit tests on the
+> instruction and by e2e on the excerpt mechanics — but no live model has read the new
+> prompts. See `.claude/plans/finish-v1.md`, T13.
 >
 > **The work this roadmap did not foresee.** Eight phases were planned; three tracks
 > happened. Phases 1–7 as written; then a design rebuild (Graphite tokens, component
