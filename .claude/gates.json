@@ -5,7 +5,13 @@
   "lint": [
     {
       "match": "\\.(tsx|jsx|ts|css)$",
-      "exclude": "node_modules/",
+      "$comment": [
+        "design-lint.test.ts is excluded because it tests the linter BY EXECUTION: it holds",
+        "#6366f1, a display face, 4px type and var(--ink-2) as string fixtures. Linting it",
+        "reports two dozen violations that are every one of them the point of the file, and a",
+        "guardrail that cries wolf on one file is one people learn to ignore everywhere."
+      ],
+      "exclude": "node_modules/|design-lint.test.ts$",
       "command": "node scripts/blueprint-lint.js"
     },
     {
