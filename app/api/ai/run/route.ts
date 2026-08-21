@@ -129,6 +129,19 @@ export async function GET(req: Request): Promise<Response> {
              */
             send("step", { label: "Looking for relevant code" });
             const context = await buildRepoContext(job, runId);
+            /*
+             * Recorded before the engine starts, so the answer is on disk even if the run
+             * then fails. A failed run is exactly when someone asks what it was working
+             * from.
+             */
+            await updateRun(runId, {
+              repoContext: {
+                status: context.status,
+                excerpts: context.excerpts,
+                semantic: context.semantic,
+                ...(context.reason ? { reason: context.reason } : {}),
+              },
+            });
             send("step", {
               label: context.included
                 ? `Read ${context.excerpts} excerpt${context.excerpts === 1 ? "" : "s"} of the repository`

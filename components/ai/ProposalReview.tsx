@@ -5,7 +5,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { likelihoodLabel } from "@/lib/labels";
 
-import type { GroundingReport, GroundingResult } from "@/lib/ai/grounding";
+import type {
+  CodeGroundingResult,
+  GroundingReport,
+  GroundingResult,
+} from "@/lib/ai/grounding";
 import type { Proposal, RunRecord } from "@/lib/ai/types";
 
 interface ProposalPayload {
@@ -196,6 +200,8 @@ export function ProposalReview({
         </p>
       </div>
 
+      <RepoContextNote run={data.run} />
+
       {(data.warnings ?? []).map((w) => (
         <div className="notice body-sm" key={w} data-testid="proposal-warning">
           {w}
@@ -234,7 +240,9 @@ export function ProposalReview({
                   {c.priority} {c.size} {c.confidence.toFixed(1)}
                 </span>
                 <Grounding result={grounding?.cards[i]} />
+                <CodeGrounding result={grounding?.code.cards[i]} />
               </div>
+              <CodeCitation result={grounding?.code.cards[i]} />
               {c.acceptance.length > 0 && (
                 <ul className="sub-list body-sm soft">
                   {c.acceptance.map((a) => (
@@ -277,6 +285,8 @@ export function ProposalReview({
                 {likelihoodLabel(r.likelihood)} / {likelihoodLabel(r.impact)}
               </span>{" "}
               <Grounding result={grounding?.risks[i]} />
+              <CodeGrounding result={grounding?.code.risks[i]} />
+              <CodeCitation result={grounding?.code.risks[i]} />
             </Row>
           ))}
         </Block>
@@ -292,6 +302,8 @@ export function ProposalReview({
               testId="proposal-assumption"
             >
               {a.text} <Grounding result={grounding?.assumptions[i]} />
+              <CodeGrounding result={grounding?.code.assumptions[i]} />
+              <CodeCitation result={grounding?.code.assumptions[i]} />
             </Row>
           ))}
         </Block>
@@ -375,6 +387,89 @@ function Row({
         <span className={checked ? undefined : "faint"}>{children}</span>
       </label>
     </li>
+  );
+}
+
+/**
+ * What the repository contributed, stated on the review itself.
+ *
+ * The one thing this must never do is stay quiet. A reader who believes the plan was
+ * checked against their code when it was not will trust it further than they should — and
+ * keyword-only retrieval, a stale index and no repository at all are three different
+ * situations with three different fixes. Shown for a healthy run too, because "read 6
+ * excerpts" is the sentence that makes the citations below make sense.
+ */
+function RepoContextNote({ run }: { run: RunRecord }) {
+  const ctx = run.repoContext;
+  if (!ctx) return null;
+
+  const summary =
+    ctx.status === "included"
+      ? `Read ${ctx.excerpts} excerpt${ctx.excerpts === 1 ? "" : "s"} of the connected ` +
+        `repository, ranked ${ctx.semantic ? "by meaning and by term" : "by term"}.`
+      : null;
+
+  return (
+    <div className="notice body-sm" data-testid="repo-context" data-repo-context={ctx.status}>
+      {summary}
+      {summary && ctx.reason ? " " : null}
+      {ctx.reason}
+    </div>
+  );
+}
+
+/**
+ * Whether a claim about the code checks out, as its own chip.
+ *
+ * Deliberately not merged with the brief-grounding chip. The two answer different
+ * questions — "is this what I asked for" and "is this what my code does" — and a reader who
+ * trusts a wrong code citation goes and edits the wrong file. A claim citing no code shows
+ * nothing at all, because most claims are about the plan and a row of "n/a" chips would bury
+ * the two that matter.
+ */
+function CodeGrounding({ result }: { result: CodeGroundingResult | undefined }) {
+  if (!result || result.status === "none") return null;
+
+  if (result.status === "quoted") {
+    return (
+      <span className="chip chip-done" data-code-grounding="quoted">
+        in the code
+      </span>
+    );
+  }
+  if (result.status === "inferred") {
+    return (
+      <span className="chip chip-paused" data-code-grounding="inferred">
+        not in the excerpts
+      </span>
+    );
+  }
+  return (
+    <span
+      className="chip chip-blocked"
+      title="This code is not in the excerpts this run was given."
+      data-code-grounding="ungrounded"
+    >
+      unverified citation
+    </span>
+  );
+}
+
+/**
+ * The citation itself: where it points, and the bytes it claims are there.
+ *
+ * Shown rather than tucked into a tooltip because it is the evidence the reader is being
+ * asked to judge, and a `title` cannot be read on a touch screen. Rendered as text nodes —
+ * the quote comes from a model via a JSON file and never becomes markup.
+ */
+function CodeCitation({ result }: { result: CodeGroundingResult | undefined }) {
+  if (!result || result.cite === null) return null;
+
+  return (
+    <div className="code-cite body-sm" data-testid="code-citation">
+      <span className="mono faint">{result.cite}</span>
+      {result.quote && <code className="code-cite-quote mono">{result.quote}</code>}
+    </div>
   );
 }
 

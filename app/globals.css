@@ -1300,6 +1300,33 @@ input[type="checkbox"] {
   gap: 5px;
 }
 
+/*
+ * A code citation under a proposed claim: where it points, and the bytes it quotes.
+ *
+ * The quote is shown rather than hidden in a tooltip because it is the evidence the reader
+ * is judging, and a title attribute cannot be read on a touch screen. It scrolls inside its
+ * own box, since a long line of source must not widen the page.
+ */
+.code-cite {
+  margin: 8px 0 0;
+  padding: 0 0 0 16px;
+  border-left: 2px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.code-cite-quote {
+  display: block;
+  overflow-x: auto;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--ink);
+  white-space: pre;
+}
+
 .raw-output {
   margin: 12px 0 0;
   padding: 14px;

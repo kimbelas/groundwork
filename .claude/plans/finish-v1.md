@@ -40,10 +40,10 @@ Batches (each re-runs `warmup.setup.ts`; that is expected):
 
 | # | Command | Status |
 |---|---------|--------|
-| 1 | `pnpm test:e2e ai.spec.ts index.spec.ts repo.spec.ts` | not run |
+| 1 | `pnpm test:e2e ai.spec.ts index.spec.ts repo.spec.ts` | green — 45 passed, 4.6m (iter 2, pre-route-change; ai.spec re-running) |
 | 2 | `pnpm test:e2e board.spec.ts columns.spec.ts drawer.spec.ts brief-editor.spec.ts` | green — 51 passed, 4.5m (iter 1) |
 | 3 | `pnpm test:e2e dashboard.spec.ts navigation.spec.ts new-project.spec.ts questions.spec.ts roadmap-log.spec.ts` | green — 66 passed, 2.4m (iter 1) |
-| 4 | `pnpm test:e2e design-system.spec.ts console.spec.ts links-search.spec.ts` | not run |
+| 4 | `pnpm test:e2e design-system.spec.ts console.spec.ts links-search.spec.ts` | green — 64 passed, 3.4m (iter 1) |
 
 Rules, all from scar tissue in CLAUDE.md / `docs/06-roadmap.md`:
 
@@ -93,7 +93,7 @@ the diff review; a project with no repo (or no index) behaves exactly as today.
   (`no-repo`/`no-index`/`stale-index`/`no-hits`/`included`/`unavailable`) plus prose, which
   is what T7 will store and render.
 
-- [ ] **T2. Wire into the run** — `instructionFor`/`prepareRun` in
+- [x] **T2. Wire into the run** — `instructionFor`/`prepareRun` in
   `lib/ai/claude-cli.ts`: when excerpts exist, the instruction names the excerpt file
   by its run-dir-relative path (inside the app root, so `assertInstructionScoped`
   passes untouched) and states the citation rule. `assertInstructionScoped` is not
@@ -101,8 +101,20 @@ the diff review; a project with no repo (or no index) behaves exactly as today.
   *Verify:* call-site test through the `prepareRun` seam — instruction names the
   excerpt file AND contains no repo path, for a repo-connected project. This is the
   guard-needs-a-test-at-its-call-site rule; the scope guard alone is not the test.
+  **Done (iter 2):** 4 tests in `tests/ai-scope.test.ts`, verified by removing the clause
+  and watching one fail. The scope guard is unmodified; its allow list gained the excerpt
+  path (inside the run dir, beside the proposal path already there).
 
-- [ ] **T3. Schema + prompts** — add optional
+- [x] **T2b. Somebody has to call it** — a gap in this plan rather than in the code: T2
+  covered the instruction, and nothing said who builds the excerpts in production.
+  `app/api/ai/run` now calls `buildRepoContext` inside the stream task, before
+  `getEngine()`, emitting a progress line either way. In the route rather than an engine
+  because both engines need the same answer and the run directory is the channel between
+  them.
+  *Verify:* `ai.spec.ts` re-run after the change (its step assertions use `toContainText`,
+  so extra progress lines are safe).
+
+- [x] **T3. Schema + prompts** — add optional
   `groundedInCode: { path, lines: [start, end], quote } | null` to card, risk and
   assumption schemas in `lib/ai/types.ts`. `undefined` = not provided, `null` =
   honest "inferred" — same contract as `groundedIn`. Update `prompts/synthesize.md`,
@@ -111,13 +123,24 @@ the diff review; a project with no repo (or no index) behaves exactly as today.
   language).
   *Verify:* schema unit tests: valid citation, malformed shape rejected, absent key
   survives untouched.
+  **Done (iter 2):** `GroundedInCodeSchema` uses `path`/`startLine`/`endLine`/`quote` — the
+  field names `CodeChunk` already uses — rather than the `lines: [start, end]` tuple this
+  plan guessed at; same information, and a citation now reads like the chunk it came from.
+  No `.default()` anywhere in the chain, so absent / null / present stay three answers. All
+  three prompts carry the citation rule and a "say when the code contradicts the brief"
+  instruction.
 
-- [ ] **T4. Grounding for code** — extend `lib/ai/grounding.ts`: each
+- [x] **T4. Grounding for code** — extend `lib/ai/grounding.ts`: each
   `groundedInCode.quote` is verified by plain string match **against the excerpt file
   this process wrote**, never by re-reading the repo — the contract is "bytes this
   process read". Unverified code quotes produce warnings alongside the brief-grounding
   ones, distinguishable from them.
   *Verify:* unit tests — match, mismatch, excerpt file absent.
+  **Done (iter 2):** 10 tests. The quote is matched inside the excerpt it CITES, proved by
+  pointing the match at the whole file and watching the wrong-attribution test fail.
+  Whitespace forgiven, case not — a mis-cased identifier is a quote from memory. Code
+  warnings are their own sentence, and the proposal route reads the excerpts back off disk
+  rather than re-retrieving them.
 
 - [ ] **T5. Fixture engine + e2e** — `lib/ai/fixture.ts`: when the project has a
   connected repo with an index, emit one card citing real excerpt text and one citing
@@ -211,6 +234,10 @@ It needs its own contract, stated and enforced.
 (One line per loop iteration: what was done, what was launched in background, anything
 surprising. Prepend-only.)
 
+- **iter 2** — T2, T2b, T3, T4 done and committed (da38f38). Batch 1 green (45) against
+  T1. Found a hole in this plan: nothing assigned the production call to
+  `buildRepoContext`, so T2b now exists. The slop-guard hook rejected two doc comments on
+  phrasing alone — reworded, no code change. 622 unit tests.
 - **iter 1** — T1 done. Batches 2 and 3 green in background. Two things worth knowing:
   `ProjectMeta` has `name`, not `title` (caught by typecheck, not by a test). And the
   `invariant-guard`/`phase-warden` steps are being done inline rather than by spawning

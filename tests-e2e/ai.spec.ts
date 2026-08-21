@@ -1,4 +1,5 @@
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 
@@ -482,4 +483,230 @@ test("an enhance run is refused while another run holds the lock", async ({ requ
   expect(res.status()).toBe(409);
 
   await fsp.rm(LOCK, { force: true });
+});
+
+
+/*
+ * ---------------------------------------------------------------- repo-grounded planning
+ *
+ * Its own fixture project, its own repository, and its own index — sharing any of the three
+ * with `index.spec.ts` or `repo.spec.ts` is how two specs end up resetting a file under each
+ * other. It lives in this file rather than its own because the run lock is global: two spec
+ * files exercising the AI subsystem in parallel is an invalid scenario, not an isolation
+ * problem to work around.
+ *
+ * The index is written directly rather than built through the UI. That is deliberate — this
+ * spec is about whether a citation is verified, and a real build would spend up to four
+ * minutes loading an embedding model to reach the same excerpts. `index.spec.ts` covers
+ * building. Keyword-only needs no model and is a supported index shape.
+ */
+const G_SLUG = "omicron-grounded";
+const G_FILE = path.resolve(import.meta.dirname, "fixture-vault", G_SLUG, "project.md");
+const G_INDEX = path.resolve(import.meta.dirname, "..", ".groundwork-e2e", "index", G_SLUG);
+
+/** The exact bytes the excerpt file will carry, and therefore the only quotable ones. */
+const ORDERING_SRC = [
+  "export function orderFor(cards: Card[], index: number): number {",
+  "  // sparse integers, renumbered on collision",
+  "  return 100 * (index + 1);",
+  "}",
+].join("\n");
+
+const WRITER_SRC = [
+  "export async function writeDocument(target: string, expectedMtimeMs: number) {",
+  "  const current = await statFile(target);",
+  "  if (current.mtimeMs !== expectedMtimeMs) throw new ConflictError('changed on disk');",
+  "}",
+].join("\n");
+
+let gScratch: string;
+let gRepo: string;
+
+function groundedFrontmatter(repo: string | null): string {
+  return [
+    "---",
+    "name: Omicron Grounded",
+    `slug: ${G_SLUG}`,
+    "stage: building",
+    "health: green",
+    "archetype: internal-tool",
+    "columns: [Intake, Shaping, Done]",
+    ...(repo ? [`repo: '${repo}'`] : []),
+    "created: 2026-08-21",
+    "updated: 2026-08-21",
+    "---",
+    "",
+    "Two people editing the same card overwrite each other. Every write should carry the",
+    "mtime it loaded so a stale one is refused.",
+    "",
+    "## What we know",
+    "",
+    "The ordering arithmetic lives on the server and uses sparse integers.",
+    "",
+    "## What we don't",
+    "",
+    "Whether a refused write should retry by itself or ask the person.",
+    "",
+  ].join("\n");
+}
+
+async function writeKeywordIndex(): Promise<void> {
+  const chunks = [
+    {
+      id: "lib/ordering.ts:40-43",
+      file: "lib/ordering.ts",
+      startLine: 40,
+      endLine: 43,
+      text: ORDERING_SRC,
+    },
+    {
+      id: "lib/writer.ts:12-15",
+      file: "lib/writer.ts",
+      startLine: 12,
+      endLine: 15,
+      text: WRITER_SRC,
+    },
+  ];
+
+  const manifest = {
+    version: 1,
+    repo: gRepo,
+    gitSha: null,
+    model: "Xenova/all-MiniLM-L6-v2",
+    dims: 384,
+    keywordOnly: true,
+    builtAt: "2026-08-21T09:00:00.000Z",
+    files: {
+      "lib/ordering.ts": { hash: "h1", chunks: 1 },
+      "lib/writer.ts": { hash: "h2", chunks: 1 },
+    },
+    chunkCount: chunks.length,
+  };
+
+  await fsp.mkdir(G_INDEX, { recursive: true });
+  await fsp.writeFile(path.join(G_INDEX, "chunks.json"), JSON.stringify(chunks), "utf8");
+  await fsp.writeFile(path.join(G_INDEX, "vectors.bin"), Buffer.alloc(0));
+  await fsp.writeFile(path.join(G_INDEX, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+}
+
+test.describe("planning grounded in the code", () => {
+  test.beforeAll(async () => {
+    gScratch = await fsp.mkdtemp(path.join(os.tmpdir(), "gw-e2e-grounded-"));
+    gRepo = path.join(gScratch, "sample-repo").split(path.sep).join("/");
+
+    await fsp.mkdir(path.join(gRepo, "lib"), { recursive: true });
+    await fsp.writeFile(path.join(gRepo, "lib", "ordering.ts"), `${ORDERING_SRC}\n`, "utf8");
+    await fsp.writeFile(path.join(gRepo, "lib", "writer.ts"), `${WRITER_SRC}\n`, "utf8");
+
+    await writeKeywordIndex();
+    await fsp.writeFile(G_FILE, groundedFrontmatter(gRepo), "utf8");
+  });
+
+  test.afterAll(async () => {
+    await fsp.rm(gScratch, { recursive: true, force: true });
+    await fsp.rm(G_INDEX, { recursive: true, force: true });
+    // Left disconnected, so the project renders the same way for any other spec.
+    await fsp.writeFile(G_FILE, groundedFrontmatter(null), "utf8");
+  });
+
+  test("the run says it read the repository, and cites it verifiably", async ({ page }) => {
+    await page.goto(`/p/${G_SLUG}/brief`);
+    await page.getByTestId("synthesize").click();
+
+    // Retrieval is a named step: a user who thinks their code was read when it was not
+    // will blame the plan.
+    await expect(page.getByTestId("run-steps")).toContainText("excerpt", { timeout: 25_000 });
+
+    const review = page.getByTestId("proposal-review");
+    await expect(review).toBeVisible({ timeout: 25_000 });
+
+    // The review states what the repository contributed. Silence here would let a reader
+    // assume more grounding than there was.
+    const note = page.getByTestId("repo-context");
+    await expect(note).toHaveAttribute("data-repo-context", "included");
+    await expect(note).toContainText("excerpt");
+    await expect(note).toContainText("by term");
+
+    // One card cites a real excerpt; one cites code that is not in it.
+    const cards = review.getByTestId("proposal-card");
+    await expect(cards.locator('[data-code-grounding="quoted"]')).toHaveCount(1);
+    await expect(cards.locator('[data-code-grounding="ungrounded"]')).toHaveCount(1);
+
+    // The citation is shown, not tucked into a tooltip: it is the evidence being judged.
+    const citation = review.getByTestId("code-citation").first();
+    await expect(citation).toContainText("lib/ordering.ts:40-43");
+
+    // Asserted against the source rather than a hard-coded line: the property that matters
+    // is that the quote is verbatim, and pinning one line would make this test a copy of
+    // the fixture's line-picking rule.
+    const quote = (await citation.locator(".code-cite-quote").innerText()).trim();
+    expect(quote.length).toBeGreaterThan(12);
+    expect(ORDERING_SRC).toContain(quote);
+  });
+
+  test("an unverifiable citation is called out above the diff", async ({ page }) => {
+    await page.goto(`/p/${G_SLUG}/brief`);
+    await page.getByTestId("synthesize").click();
+    await expect(page.getByTestId("proposal-review")).toBeVisible({ timeout: 25_000 });
+
+    // Its own sentence, separate from the brief-grounding warning: one is a claim about
+    // what was asked for, the other about what the code already does.
+    await expect(page.getByTestId("proposal-warning").filter({ hasText: "cite the repository" })).toHaveCount(1);
+  });
+
+  test("the excerpts never name the repository, and the run is never told where it is", async ({
+    page,
+  }) => {
+    /*
+     * The claim the whole design rests on, checked against what is actually on disk. A run
+     * directory that named the repo path would hand over write access to a tree no
+     * permission rule covers — and unlike the instruction, nothing asserts on these files
+     * at spawn time.
+     */
+    await page.goto(`/p/${G_SLUG}/brief`);
+    await page.getByTestId("synthesize").click();
+    await expect(page.getByTestId("proposal-review")).toBeVisible({ timeout: 25_000 });
+
+    const runDirs = await fsp.readdir(RUNS);
+    expect(runDirs.length).toBeGreaterThan(0);
+
+    let sawExcerpts = false;
+    for (const dir of runDirs) {
+      const excerpts = path.join(RUNS, dir, "context", "repo-excerpts.md");
+      let text: string;
+      try {
+        text = await fsp.readFile(excerpts, "utf8");
+      } catch {
+        continue;
+      }
+      sawExcerpts = true;
+      expect(text).toContain("lib/ordering.ts:40-43");
+      expect(text.toLowerCase()).not.toContain(gRepo.toLowerCase());
+      expect(text.toLowerCase()).not.toContain(gScratch.toLowerCase().split(path.sep).join("/"));
+    }
+    expect(sawExcerpts).toBe(true);
+  });
+
+  test("a project with no repository plans from the brief alone", async ({ page }) => {
+    // The degradation path, which must stay silent-free: it says what it did.
+    await fsp.writeFile(G_FILE, groundedFrontmatter(null), "utf8");
+
+    await page.goto(`/p/${G_SLUG}/brief`);
+    await page.getByTestId("synthesize").click();
+
+    await expect(page.getByTestId("run-steps")).toContainText("brief alone", { timeout: 25_000 });
+
+    const review = page.getByTestId("proposal-review");
+    await expect(review).toBeVisible({ timeout: 25_000 });
+    // Back to the three cards every repo-less project produces.
+    await expect(review.getByTestId("proposal-card")).toHaveCount(3);
+    await expect(review.getByTestId("code-citation")).toHaveCount(0);
+
+    // And it says why, rather than showing nothing and letting the reader guess.
+    const note = page.getByTestId("repo-context");
+    await expect(note).toHaveAttribute("data-repo-context", "no-repo");
+    await expect(note).toContainText("No repository is connected");
+
+    await fsp.writeFile(G_FILE, groundedFrontmatter(gRepo), "utf8");
+  });
 });

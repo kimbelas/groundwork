@@ -88,6 +88,39 @@ describe("run records", () => {
     expect(await runs.readRun("run_20990101_0000")).toBeNull();
   });
 
+  it("keeps what the repository contributed, including why it contributed nothing", async () => {
+    /*
+     * Recorded rather than recomputed: an index rebuilt tomorrow would answer "was this
+     * plan grounded in the code" differently, and the honest answer is the one from the
+     * time the run happened. The reason travels with it because "no-index" alone does not
+     * tell the reader what to do about it.
+     */
+    await runs.createRun({
+      ...base,
+      repoContext: {
+        status: "stale-index",
+        excerpts: 0,
+        semantic: false,
+        reason: "The index was built from a different repository.",
+      },
+    });
+
+    const after = await runs.readRun(base.runId);
+    expect(after?.repoContext?.status).toBe("stale-index");
+    expect(after?.repoContext?.reason).toMatch(/different repository/);
+
+    // A patch elsewhere must not drop it - the record is read by the review UI.
+    await runs.updateRun(base.runId, { status: "ready" });
+    expect((await runs.readRun(base.runId))?.repoContext?.status).toBe("stale-index");
+  });
+
+  it("still reads a record written before repo grounding existed", async () => {
+    // The field is optional for this reason: an old run must not become unreadable, which
+    // would hide a proposal someone is still waiting on.
+    await runs.createRun(base);
+    expect(await runs.readRun(base.runId)).toEqual(base);
+  });
+
   it("lists newest first and filters by project", async () => {
     await runs.createRun(base);
     await runs.createRun({ ...base, runId: "run_20260819_0700", slug: "other" });

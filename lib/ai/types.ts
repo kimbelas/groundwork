@@ -138,6 +138,33 @@ export type GroundedInCode = z.output<typeof GroundedInCodeSchema>;
 
 export type RunStatus = "running" | "ready" | "failed" | "stopped";
 
+/**
+ * What the repository contributed to a run, recorded so the answer survives the run.
+ *
+ * Stored rather than recomputed because it is a fact about what happened, not about what
+ * would happen now: an index rebuilt tomorrow would give a different answer to "was this
+ * plan grounded in the code", and the honest answer is the one from the time.
+ *
+ * The status is a code and the reason is prose. Both, deliberately — the code is what a
+ * test or a later filter can rely on, and the sentence is what a person needs, because
+ * "no-index" on its own does not say what to do about it.
+ */
+export interface RunRepoContext {
+  status: "no-repo" | "no-index" | "stale-index" | "no-hits" | "included" | "unavailable";
+  /** How many excerpts the run was given. Zero unless status is "included". */
+  excerpts: number;
+  /** Whether semantic ranking took part, as opposed to keyword matching alone. */
+  semantic: boolean;
+  reason?: string;
+}
+
+export const RunRepoContextSchema = z.object({
+  status: z.enum(["no-repo", "no-index", "stale-index", "no-hits", "included", "unavailable"]),
+  excerpts: z.number().int().min(0),
+  semantic: z.boolean(),
+  reason: z.string().optional(),
+});
+
 export interface RunRecord {
   runId: string;
   slug: string;
@@ -149,6 +176,8 @@ export interface RunRecord {
   error?: string;
   /** Set once the proposal has been applied, so revert knows what it is undoing. */
   appliedAt?: string;
+  /** Absent on runs that predate repo grounding, which is why it is optional. */
+  repoContext?: RunRepoContext;
 }
 
 export const RunRecordSchema = z.object({
@@ -160,4 +189,5 @@ export const RunRecordSchema = z.object({
   finishedAt: z.string().nullable(),
   error: z.string().optional(),
   appliedAt: z.string().optional(),
+  repoContext: RunRepoContextSchema.optional(),
 });

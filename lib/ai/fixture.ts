@@ -1,4 +1,4 @@
-import { writeProposal } from "@/lib/runs";
+import { readExcerpts, writeProposal } from "@/lib/runs";
 import { getProject } from "@/lib/vault";
 
 import type { AiEngine } from "./engine";
@@ -15,9 +15,54 @@ import type { AiEvent, AiJob, Proposal } from "./types";
  *
  * Selected with `GROUNDWORK_AI_ENGINE=fixture`. Never reachable in normal use.
  */
+/**
+ * The first excerpt this run was given, if it was given any.
+ *
+ * Parsed back out of the file rather than re-derived, because the point of the fixture is
+ * to produce a citation that the grounding check will genuinely verify — which means citing
+ * a heading and bytes that really are in the file the app wrote. Anything synthesised here
+ * would test the assertion instead of the mechanism.
+ */
+interface FixtureCitation {
+  path: string;
+  startLine: number;
+  endLine: number;
+  quote: string;
+}
+
+async function firstExcerpt(runId: string): Promise<FixtureCitation | null> {
+  const text = await readExcerpts(runId);
+  if (!text) return null;
+
+  const heading = /^## (\S+):(\d+)-(\d+)$/m.exec(text);
+  if (!heading) return null;
+  const [, file, start, end] = heading;
+  if (!file || !start || !end) return null;
+
+  // The fenced body that follows the heading. `composeExcerpts` sizes the fence to the
+  // content, so the opening run of backticks is matched rather than assumed to be three.
+  const after = text.slice(heading.index + (heading[0] ?? "").length);
+  const fence = /^(`{3,})\r?\n([\s\S]*?)\r?\n\1/m.exec(after);
+  if (!fence) return null;
+
+  const quote = (fence[2] ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l.length > 12);
+  if (!quote) return null;
+
+  return { path: file, startLine: Number(start), endLine: Number(end), quote };
+}
+
+/** A citation of the right shape whose quote is not in the excerpts. Proves the check bites. */
+function bogus(cite: FixtureCitation): FixtureCitation {
+  return { ...cite, quote: "const inventedSymbolThatIsNotInTheRepository = true;" };
+}
+
 async function buildProposal(job: AiJob, runId: string): Promise<Proposal> {
   const project = await getProject(job.slug);
   const brief = project.brief.trim();
+  const cite = await firstExcerpt(runId);
 
   // A genuine sentence from the brief, so "quoted" is a real verification.
   const firstSentence = (brief.match(/[^.\n]{20,180}\./)?.[0] ?? brief.slice(0, 120)).trim();
@@ -64,6 +109,9 @@ async function buildProposal(job: AiJob, runId: string): Promise<Proposal> {
           body: "Rewritten with specifics drawn from the brief rather than boilerplate.",
           acceptance: ["The described behaviour is observable end to end"],
           groundedIn: firstSentence,
+          // Absent rather than null when this run had no excerpts: the three states are
+          // the contract, and a fixture that flattened them would hide a regression.
+          ...(cite ? { groundedInCode: cite } : {}),
         },
       ],
       risks: [],
@@ -120,6 +168,43 @@ async function buildProposal(job: AiJob, runId: string): Promise<Proposal> {
         acceptance: ["This card should be rejected in review"],
         groundedIn: "the telemetry pipeline must be migrated before launch",
       },
+      /*
+       * Present only when this run was given excerpts, so every project that has no
+       * repository keeps producing exactly the three cards the rest of the suite counts.
+       *
+       * One verified citation and one invented one, which is the same trick the brief
+       * grounding uses: a fixture where everything checks out cannot prove the check runs.
+       */
+      ...(cite
+        ? [
+            {
+              op: "create" as const,
+              title: "Extend what the code already does here",
+              column: "Shaping",
+              phase: 2,
+              priority: "P1" as const,
+              size: "M" as const,
+              confidence: 0.6,
+              body: "Grounded in a real excerpt of the connected repository.",
+              acceptance: ["The existing behaviour is extended rather than duplicated"],
+              groundedIn: null,
+              groundedInCode: cite,
+            },
+            {
+              op: "create" as const,
+              title: "Replace a module that does not exist",
+              column: "Intake",
+              phase: 1,
+              priority: "P3" as const,
+              size: "L" as const,
+              confidence: 0.2,
+              body: "Cites code that is not in the excerpts, on purpose.",
+              acceptance: ["This citation should be flagged in review"],
+              groundedIn: null,
+              groundedInCode: bogus(cite),
+            },
+          ]
+        : []),
     ],
     risks: [
       {
