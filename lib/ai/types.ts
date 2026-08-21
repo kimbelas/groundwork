@@ -93,10 +93,40 @@ export const PhaseProposalSchema = z.object({
   goal: z.string().max(400).default(""),
 });
 
+/**
+ * A likelihood, spelled the way a model actually spells it.
+ *
+ * `med` is an abbreviation, and the prompt could only show it by example — so a real run
+ * wrote `"medium"` and **the entire proposal was rejected**: six cards and six questions
+ * thrown away over two words in the risk register. The prompts now state the allowed values
+ * outright, which is the real fix; this is the belt to that braces.
+ *
+ * Normalising a synonym is not the same as coercing content. The app refuses to repair a
+ * malformed *document* — a partial apply is worse than a failed run — but `medium` and `med`
+ * are the same answer in different words, and there is no reading of `medium` that means
+ * something else. Case is folded for the same reason: `High` is not a different likelihood.
+ *
+ * Anything not on this list passes through untouched, so zod still reports what was wrong
+ * rather than this quietly inventing a value. Non-strings pass through too: a preprocess
+ * that turned `undefined` into a default would be the bug CLAUDE.md warns about.
+ */
+const LIKELIHOOD_SYNONYMS: Record<string, string> = {
+  medium: "med",
+  moderate: "med",
+  low: "low",
+  med: "med",
+  high: "high",
+};
+
+const Likelihood = z.preprocess((v) => {
+  if (typeof v !== "string") return v;
+  return LIKELIHOOD_SYNONYMS[v.trim().toLowerCase()] ?? v;
+}, z.enum(LIKELIHOODS));
+
 export const RiskProposalSchema = z.object({
   text: z.string().min(1).max(600),
-  likelihood: z.enum(LIKELIHOODS),
-  impact: z.enum(LIKELIHOODS),
+  likelihood: Likelihood,
+  impact: Likelihood,
   mitigation: z.string().max(600).default(""),
   groundedIn: Grounded,
   groundedInCode: GroundedInCode,

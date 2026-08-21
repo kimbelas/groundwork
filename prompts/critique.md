@@ -47,6 +47,11 @@ Filling the list to look thorough is the failure mode of this job.
 **Do not re-raise an existing risk.** Check `risks.md` first. A duplicate risk makes the
 register less useful, not more.
 
+**Use these exact values.** `priority` is `P1`, `P2` or `P3`. `size` is `S`, `M` or `L`.
+`likelihood` and `impact` are `low`, `med` or `high` — `med`, not `medium`. `confidence` is a
+number between 0 and 1. A value outside these lists fails validation and the whole proposal
+is rejected, including the parts that were right.
+
 **`groundedIn` is a verbatim quote from the brief, or `null`.** For a critique, `null` is
 often correct — you are usually pointing at an *absence*, which cannot be quoted.
 

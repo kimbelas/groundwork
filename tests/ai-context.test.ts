@@ -34,6 +34,10 @@ let store: typeof import("@/lib/index/store");
 const SLUG = "portal-rebuild";
 const RUN_ID = "run_20260821_0900";
 const REPO = process.platform === "win32" ? "C:\\work\\portal" : "/work/portal";
+/** Built rather than written inline, so an editor cannot normalise these fixtures. */
+const NEWLINE = String.fromCharCode(10);
+/** A three-backtick fence, built so this file never contains a bare one. */
+const F3 = String.fromCharCode(96).repeat(3);
 
 const BRIEF = `The board loses a card's position when two people drag at once.
 
@@ -194,13 +198,18 @@ describe("composeExcerpts", () => {
     expect(text).toContain("3 further excerpts matched but did not fit.");
   });
 
-  it("stops at the byte ceiling", () => {
+  it("holds the byte ceiling", () => {
+    // Six chunks of 4 KB against a 16 KB budget: some get in, some do not, and the file
+    // stays inside the bound. Asserted as a bound rather than a count, because the rule is
+    // "skip what does not fit and keep going" - a later, smaller excerpt may still land.
     const big = Array.from({ length: 6 }, (_, i) =>
-      hit(chunk(`src/big${i}.ts`, 1, "x".repeat(2000))),
+      hit(chunk(`src/big${i}.ts`, 1, "x".repeat(4000))),
     );
     const { text, used } = ctx.composeExcerpts(big, REPO);
+
+    expect(used).toBeGreaterThan(1);
     expect(used).toBeLessThan(6);
-    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(ctx.MAX_EXCERPT_BYTES + 2000);
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(ctx.MAX_EXCERPT_BYTES);
   });
 
   it("always takes the first excerpt, even one larger than the whole budget", () => {
@@ -208,6 +217,103 @@ describe("composeExcerpts", () => {
     // as "your repo has nothing about this" rather than "one chunk was long".
     const huge = hit(chunk("src/huge.ts", 1, "y".repeat(ctx.MAX_EXCERPT_BYTES * 2)));
     expect(ctx.composeExcerpts([huge], REPO).used).toBe(1);
+  });
+});
+
+/**
+ * The format, written and read back by the same rules.
+ *
+ * This suite exists because those rules lived in two places and disagreed. The writer
+ * fenced each excerpt with a run of backticks longer than anything in the content; the
+ * verifier cut each excerpt at the next `## ` line. Both looked reasonable. Then a real run
+ * retrieved a README, whose own subheadings are `## ` at the start of a line, and ten
+ * citations that were genuinely inside the excerpt came back "ungrounded" — the precise
+ * failure the design calls worse than not checking at all.
+ */
+describe("the excerpt format round-trips", () => {
+  const hit = (c: CodeChunk): Hit => ({ chunk: c, via: "keyword" });
+
+  it("reads back an excerpt whose content is full of markdown headings", () => {
+    const readme = chunk(
+      "README.md",
+      1,
+      [
+        "# Claude Coach",
+        "",
+        "A local-only coach.",
+        "",
+        "## Run it",
+        "",
+        "Double-click coach.cmd.",
+        "",
+        "## Layout",
+        "",
+        "Every coaching report, kept, so progress is visible over time.",
+      ].join(NEWLINE),
+    );
+
+    const { text } = ctx.composeExcerpts([hit(readme)], REPO);
+    const body = ctx.excerptBodyFor(text, "README.md:1-11");
+
+    expect(body).not.toBeNull();
+    // The whole excerpt, not the first few lines of it.
+    expect(body).toContain("Every coaching report, kept");
+    expect(body).toContain("## Layout");
+  });
+
+  it("reads back an excerpt containing its own code fences", () => {
+    const doc = chunk("docs/x.md", 5, ["Use this:", F3 + "ts", "const a = 1;", F3, "done."].join(NEWLINE));
+    const { text } = ctx.composeExcerpts([hit(doc)], REPO);
+
+    expect(ctx.excerptBodyFor(text, "docs/x.md:5-9")).toContain("const a = 1;");
+  });
+
+  it("keeps two excerpts apart", () => {
+    // The boundary has to hold in the direction that matters too: a quote from excerpt B
+    // must not verify against a citation of excerpt A.
+    const { text } = ctx.composeExcerpts([hit(ORDERING), hit(CONFLICT)], REPO);
+
+    const first = ctx.excerptBodyFor(text, "lib/ordering.ts:40-43") ?? "";
+    expect(first).toContain("orderFor");
+    expect(first).not.toContain("expectedMtimeMs");
+  });
+
+  it("returns null for a citation the file does not carry", () => {
+    const { text } = ctx.composeExcerpts([hit(ORDERING)], REPO);
+    expect(ctx.excerptBodyFor(text, "lib/ordering.ts:1-9")).toBeNull();
+    expect(ctx.excerptBodyFor(text, "nowhere.ts:1-2")).toBeNull();
+  });
+
+  it("returns null rather than the neighbour when a fence is missing", () => {
+    // A truncated file must verify nothing, not verify everything.
+    const broken = "# Repository excerpts" + NEWLINE + NEWLINE + "## a.ts:1-2" + NEWLINE + NEWLINE + "## b.ts:3-4" + NEWLINE + NEWLINE + F3 + NEWLINE + "real" + NEWLINE + F3 + NEWLINE;
+    expect(ctx.excerptBodyFor(broken, "a.ts:1-2")).toBeNull();
+  });
+});
+
+describe("one oversized hit does not starve the rest", () => {
+  const hit = (c: CodeChunk): Hit => ({ chunk: c, via: "keyword" });
+
+  it("skips what does not fit and keeps going", () => {
+    /*
+     * Measured on a real repository: the top hit was a 6.8 KB README, the budget was 6 KB,
+     * and the composer stopped there - so the run received a README and no source at all.
+     * One long hit must cost itself, not everything behind it.
+     */
+    const huge = hit(chunk("README.md", 1, "x".repeat(Math.floor(ctx.MAX_EXCERPT_BYTES * 0.9))));
+    const small = Array.from({ length: 5 }, (_, i) =>
+      hit(chunk(`src/f${i}.ts`, 1, `export const a${i} = ${i};`)),
+    );
+
+    const { used } = ctx.composeExcerpts([huge, ...small], REPO);
+    expect(used).toBeGreaterThan(1);
+  });
+
+  it("still takes the first even when it alone exceeds the budget", () => {
+    const huge = hit(chunk("big.ts", 1, "y".repeat(ctx.MAX_EXCERPT_BYTES * 2)));
+    const { used, text } = ctx.composeExcerpts([huge, hit(ORDERING)], REPO);
+    expect(used).toBe(1);
+    expect(text).toContain("## big.ts:1-1");
   });
 });
 

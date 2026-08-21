@@ -1,3 +1,4 @@
+import { excerptBodyFor } from "./excerpts";
 import type { Proposal } from "./types";
 
 /**
@@ -97,13 +98,17 @@ export function checkCodeQuote(
   // A citation with no excerpt file behind it cannot be honest: nothing was shown.
   if (!excerpts) return result("ungrounded");
 
-  const marker = `## ${heading}`;
-  const start = excerpts.indexOf(marker);
-  if (start === -1) return result("ungrounded");
-
-  const after = excerpts.slice(start + marker.length);
-  const next = after.indexOf("\n## ");
-  const section = next === -1 ? after : after.slice(0, next);
+  /*
+   * The excerpt's body, bounded by the fence the writer emitted rather than by the next
+   * markdown heading.
+   *
+   * The heading rule looked right and was wrong: excerpt bodies are arbitrary file content,
+   * and the first real repository this met was a README whose own `## ` subheadings cut its
+   * excerpt short — so ten citations that were genuinely present came back "ungrounded".
+   * `lib/ai/excerpts.ts` owns both halves of the format now, for that reason.
+   */
+  const section = excerptBodyFor(excerpts, heading);
+  if (section === null) return result("ungrounded");
 
   if (section.includes(cite.quote.trim())) return result("quoted");
 

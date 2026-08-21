@@ -270,6 +270,55 @@ describe("ProposalSchema", () => {
  * citations from silence — which is the failure CLAUDE.md records from `lib/ai/apply.ts`,
  * arriving in the one field where it would invent evidence.
  */
+describe("likelihood spelling", () => {
+  /*
+   * A real run wrote "medium" and the whole proposal was rejected - six cards and six
+   * questions discarded over two words in the risk register, because `med` is an
+   * abbreviation the prompt could only show by example. The prompts now state the values;
+   * this is the second layer.
+   */
+  function risk(over: Record<string, unknown>) {
+    return ProposalSchema.safeParse({
+      runId: "run_20260819_0600",
+      job: "critique",
+      slug: "test",
+      summary: "s",
+      risks: [{ text: "r", likelihood: "med", impact: "med", groundedIn: null, ...over }],
+    });
+  }
+
+  it("accepts the word a model actually writes", () => {
+    const parsed = risk({ likelihood: "medium", impact: "Moderate" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.risks[0]?.likelihood).toBe("med");
+      expect(parsed.data.risks[0]?.impact).toBe("med");
+    }
+  });
+
+  it("folds case on the canonical values", () => {
+    const parsed = risk({ likelihood: "HIGH", impact: " low " });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.risks[0]?.likelihood).toBe("high");
+      expect(parsed.data.risks[0]?.impact).toBe("low");
+    }
+  });
+
+  it("still refuses a word that is not a synonym", () => {
+    // Normalising a synonym is not the same as guessing. "critical" is a judgement this
+    // schema does not carry, so it fails and says so.
+    expect(risk({ likelihood: "critical" }).success).toBe(false);
+  });
+
+  it("does not invent a value from a missing one", () => {
+    // The preprocess passes non-strings through, so an absent field is still an error
+    // rather than quietly becoming "med".
+    expect(risk({ likelihood: undefined }).success).toBe(false);
+    expect(risk({ likelihood: null }).success).toBe(false);
+  });
+});
+
 describe("the code citation schema", () => {
   const cite = {
     path: "lib/ordering.ts",

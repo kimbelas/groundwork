@@ -1,4 +1,5 @@
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -258,6 +259,56 @@ describe("prepareRun — the guard is actually installed", () => {
  * matters: a permission rule is anchored at that root and cannot match an absolute path, so
  * the relative spelling is the case worth asserting.
  */
+describe("prepareRun — a moved vault is refused, not silently missed", () => {
+  /*
+   * The instruction says `vault/<slug>`, relative, because a run's write permissions are
+   * globs anchored at the app root. So a vault moved with GROUNDWORK_VAULT is a project the
+   * run cannot see AND a directory `Write(vault/**)` no longer protects. Found by pointing a
+   * real run at a throwaway vault: nothing failed, the model was simply handed the wrong
+   * path. The e2e suite cannot catch it because the fixture engine takes no instruction.
+   */
+  afterEach(() => {
+    delete process.env.GROUNDWORK_VAULT;
+  });
+
+  it("builds the instruction when the vault is where the run will look", async () => {
+    delete process.env.GROUNDWORK_VAULT;
+    const { prepareRun } = await import("@/lib/ai/claude-cli");
+    expect(
+      code(() => prepareRun({ kind: "synthesize", slug: "alpha-portal" }, RUN_ID, process.cwd())),
+    ).toBe("did-not-throw");
+  });
+
+  it("refuses when GROUNDWORK_VAULT points somewhere else", async () => {
+    process.env.GROUNDWORK_VAULT = path.join(os.tmpdir(), "gw-elsewhere");
+    const { prepareRun } = await import("@/lib/ai/claude-cli");
+    expect(
+      code(() => prepareRun({ kind: "synthesize", slug: "alpha-portal" }, RUN_ID, process.cwd())),
+    ).toBe("escapes_root");
+  });
+
+  it("accepts the default spelled differently", async () => {
+    // The supported case must not be refused by a string compare: on Windows the drive
+    // letter's case and a trailing separator both vary.
+    process.env.GROUNDWORK_VAULT = path.join(process.cwd(), "vault", ".");
+    const { prepareRun } = await import("@/lib/ai/claude-cli");
+    expect(
+      code(() => prepareRun({ kind: "critique", slug: "alpha-portal" }, RUN_ID, process.cwd())),
+    ).toBe("did-not-throw");
+  });
+
+  it("says what to do about it", async () => {
+    process.env.GROUNDWORK_VAULT = path.join(os.tmpdir(), "gw-elsewhere");
+    const { prepareRun } = await import("@/lib/ai/claude-cli");
+    try {
+      prepareRun({ kind: "synthesize", slug: "alpha-portal" }, RUN_ID, process.cwd());
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect((e as Error).message).toContain("GROUNDWORK_AI_ENGINE=fixture");
+    }
+  });
+});
+
 describe("prepareRun — excerpts are named, the repository is not", () => {
   const REPO = process.platform === "win32" ? "C:\\work\\portal" : "/work/portal";
   let runsRoot: string;

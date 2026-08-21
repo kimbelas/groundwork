@@ -1,7 +1,8 @@
 import { parseChecklist } from "@/lib/checklist";
 import { readIndex } from "@/lib/index/store";
-import { citation, search, type Hit } from "@/lib/index/retrieve";
+import { search, type Hit } from "@/lib/index/retrieve";
 import { isInside, normalizeRepoPath } from "@/lib/repo";
+import { composeExcerpts } from "./excerpts";
 import { writeExcerpts } from "@/lib/runs";
 import { getCard, getProject } from "@/lib/vault";
 
@@ -39,17 +40,6 @@ import type { AiJob } from "./types";
 
 /** Distinct queries sent to the index. More is not better; it is slower and more diffuse. */
 export const MAX_QUERIES = 6;
-
-/** Excerpts written at most. Eight chunks of ~60 lines is already a lot of context. */
-export const MAX_EXCERPTS = 8;
-
-/**
- * Byte ceiling for the excerpt file.
- *
- * The point of retrieval is that the model reads a little of the repo rather than a lot,
- * so this is the mechanism, not a safety valve. Whatever is dropped is stated in the file.
- */
-export const MAX_EXCERPT_BYTES = 6 * 1024;
 
 /** Hits requested per query before merging. */
 const PER_QUERY = 4;
@@ -163,96 +153,25 @@ export function cardQueries(title: string, body: string, limit = MAX_QUERIES): s
   return collect([title, ...acceptance, ...prose], limit);
 }
 
-// ---------------------------------------------------------------- composition
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * Remove the repository's own location from text that is about to be handed to a run.
+/*
+ * The excerpt file's format lives in `./excerpts`, which is pure — no filesystem, no vault.
  *
- * Chunk *paths* are repo-relative by construction, but chunk *text* is arbitrary source
- * and a repo can perfectly well contain its own absolute path — in a config file, a
- * committed log, a comment. Writing that into the excerpt file would hand over the one
- * thing the whole design withholds, and it would do it in the file the model is told to
- * read. Both separator spellings are redacted, case-insensitively, because Windows treats
- * `C:\Repo` and `c:/repo` as one directory and `lib/repo.ts` normalises to forward slashes.
+ * It moved there so the *writer* and the *verifier* share one definition of where an excerpt
+ * ends. They did not, and the cost was ten honest citations reported as fabrications: the
+ * verifier cut each excerpt at the next markdown heading, and the first real repository it
+ * met was a README whose own `## ` subheadings sat inside the excerpt.
  *
- * The redaction happens before anything is written, so the bytes the model sees and the
- * bytes the grounding check compares against are the same bytes. A quote spanning a
- * redaction fails verification, which is the correct outcome and vanishingly rare.
+ * Re-exported from here because this module is the entry point for the flow, and because
+ * `lib/ai/grounding.ts` needs the reader half without inheriting these filesystem imports.
  */
-export function redactRepoPath(text: string, repo: string): string {
-  const spellings = new Set([repo, repo.split("\\").join("/"), repo.split("/").join("\\")]);
-  let out = text;
-  for (const spelling of spellings) {
-    if (spelling.length === 0) continue;
-    out = out.replace(new RegExp(escapeRegExp(spelling), "gi"), "<repo>");
-  }
-  return out;
-}
-
-/** A fence longer than any run of backticks inside the text it has to contain. */
-function fenceFor(text: string): string {
-  let longest = 0;
-  for (const run of text.match(/`+/g) ?? []) longest = Math.max(longest, run.length);
-  return "`".repeat(Math.max(3, longest + 1));
-}
-
-const HEADER = [
-  "# Repository excerpts",
-  "",
-  "Retrieved by Groundwork from the repository connected to this project. **These excerpts",
-  "are the only part of that repository available in this run.** Its location on disk is",
-  "deliberately withheld, and there is no way to read more of it from here.",
-  "",
-  "Cite code as `path:startLine-endLine` — the heading above each excerpt is exactly that —",
-  "and quote only text that appears verbatim below. Quotes are checked against this file by",
-  "plain string match, so an invented citation is worse than an honest null.",
-  "",
-].join("\n");
-
-function via(hit: Hit): string {
-  if (hit.via === "both") return "matched by meaning and by term";
-  return hit.via === "semantic" ? "matched by meaning" : "matched by term";
-}
-
-/**
- * Compose the excerpt file, dropping what does not fit and saying so.
- *
- * Pure, and exported for the same reason the chunker's rules are: what the model is shown
- * is the whole substance of this feature, and it should be assertable without a filesystem
- * or an embedding model.
- */
-export function composeExcerpts(hits: Hit[], repo: string): { text: string; used: number } {
-  const sections: string[] = [];
-  let bytes = Buffer.byteLength(HEADER, "utf8");
-  let used = 0;
-
-  for (const hit of hits) {
-    if (used >= MAX_EXCERPTS) break;
-    const body = redactRepoPath(hit.chunk.text, repo);
-    const fence = fenceFor(body);
-    const section = `## ${citation(hit.chunk)}\n\n_${via(hit)}_\n\n${fence}\n${body}\n${fence}\n\n`;
-    const size = Buffer.byteLength(section, "utf8");
-    // Always take the first one. An excerpt larger than the whole budget is a chunk of
-    // long lines, and returning an empty file would report "no code found" for a repo the
-    // index searched successfully.
-    if (used > 0 && bytes + size > MAX_EXCERPT_BYTES) break;
-    sections.push(section);
-    bytes += size;
-    used += 1;
-  }
-
-  const dropped = hits.length - used;
-  const note =
-    dropped > 0
-      ? `_${dropped} further excerpt${dropped === 1 ? "" : "s"} matched but did not fit._\n`
-      : "";
-
-  return { text: `${HEADER}${sections.join("")}${note}`, used };
-}
+export {
+  composeExcerpts,
+  excerptBodyFor,
+  fenceFor,
+  redactRepoPath,
+  MAX_EXCERPTS,
+  MAX_EXCERPT_BYTES,
+} from "./excerpts";
 
 // ---------------------------------------------------------------- retrieval
 

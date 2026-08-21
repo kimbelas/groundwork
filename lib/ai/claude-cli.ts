@@ -2,6 +2,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 
 import { appendStdout, hasExcerpts, runPaths } from "@/lib/runs";
+import { VaultError } from "@/lib/errors";
+import { vaultRoot } from "@/lib/vault";
 
 import { assertInstructionScoped } from "./scope";
 import type { AiEngine } from "./engine";
@@ -170,6 +172,43 @@ function* parseLines(buffer: string): Generator<string> {
 }
 
 /**
+ * A real run only works against the default vault location, and says so rather than
+ * quietly reading the wrong project.
+ *
+ * The instruction names the project as `vault/<slug>` — relative, because the run's
+ * permissions are globs anchored at the app root and `Write(vault/**)` is what stops the
+ * model writing into the data. Two things follow, and both are load-bearing:
+ *
+ *  - If `GROUNDWORK_VAULT` points somewhere else, that relative path resolves to a
+ *    *different* directory than the one the app reads. The run would be handed whatever
+ *    happens to sit at `<app>/vault/<slug>` — the wrong project, or nothing.
+ *  - Naming the real location instead would not fix it, it would break the boundary: no
+ *    glob in `run-settings.json` can match a path outside the app root, and a generated
+ *    absolute deny rule is the approach `lib/ai/scope.ts` already rejects as untested. The
+ *    vault would be writable by the run.
+ *
+ * So this refuses. The e2e suite never saw it because it drives the fixture engine, which
+ * needs no instruction at all — the combination that breaks is a moved vault plus a real
+ * spawn, which is exactly what a developer testing against a throwaway vault would hit.
+ */
+function assertDefaultVault(cwd: string): void {
+  const expected = path.resolve(cwd, "vault");
+  const actual = path.resolve(vaultRoot());
+  // path.relative rather than a string compare: Windows treats C:\Vault and c:\vault as
+  // one directory, and a literal compare would refuse the supported case.
+  if (path.relative(expected, actual) === "") return;
+
+  throw new VaultError(
+    "escapes_root",
+    `Refusing to start an AI run: GROUNDWORK_VAULT points at ${actual}, but a run is told ` +
+      `where the project is as a path relative to ${cwd}. Its write permissions are globs ` +
+      `anchored there, so a vault anywhere else is both unreadable to the run and ` +
+      `unprotected by the rule that keeps the model out of the vault. Use the default ` +
+      `location, or run with GROUNDWORK_AI_ENGINE=fixture.`,
+  );
+}
+
+/**
  * Everything decided before a process exists: where the proposal goes, what the model is
  * told, and whether that is allowed to leave this directory.
  *
@@ -193,6 +232,8 @@ export function prepareRun(
    * perfectly good proposal it could not save. Only fall back to the absolute path if the
    * run directory sits outside cwd, where no relative rule could apply.
    */
+  assertDefaultVault(cwd);
+
   const { proposal: absoluteOut, excerpts: absoluteExcerpts } = runPaths(runId);
   const underCwd = (abs: string): string => {
     const rel = path.relative(cwd, abs).split(path.sep).join("/");

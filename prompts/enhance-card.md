@@ -43,6 +43,10 @@ string match, so an invented citation is worse than omitting the field. This is 
 that makes an enhancement specific to *this* codebase rather than to software in general —
 an acceptance criterion that names the function it has to change is worth five that do not.
 
+**Use these exact values.** `priority` is `P1`, `P2` or `P3`; `size` is `S`, `M` or `L`;
+`confidence` is a number between 0 and 1. Anything else fails validation and the whole
+proposal is rejected.
+
 **Confidence reflects understanding.** If the card is still unclear after reading the
 brief, say so with a low number and a question — do not paper over it with detail.
 

@@ -56,6 +56,11 @@ definitions produce different effective rates" is.
 says *units*, do not write *properties*. Renaming the user's domain is how a plan stops
 being about their business.
 
+**Use these exact values.** `priority` is `P1`, `P2` or `P3`. `size` is `S`, `M` or `L`.
+`likelihood` and `impact` are `low`, `med` or `high` — `med`, not `medium`. `confidence` is a
+number between 0 and 1. A value outside these lists fails validation and the whole proposal
+is rejected, including the parts that were right.
+
 **Size and confidence honestly.** `size` is S/M/L; `confidence` is 0–1 and means "how
 well is this understood", not "how likely to succeed". Low confidence on genuinely
 unclear work is the correct answer and more useful than false precision. Never estimate
