@@ -44,6 +44,18 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
   preservation pass carries nothing and zod fills in defaults. One click replaced
   everything a user had typed with fabricated values. Both patch functions call
   `hasBrokenFrontmatter` and throw `invalid_document`; the file needs a human.
+- **`lib/export.ts` is the fourth exception, and the only one that writes outside this
+  app.** The other three own a directory — two inside the app root, and `lib/repo.ts` a
+  third tree it *never writes to at all*, which is the whole of that argument and export
+  cannot borrow it. So it carries its own contract: exactly two filenames (`CLAUDE.md`,
+  `TASKS.md`), both constants in the module and neither taken from a caller; into an
+  **existing** directory only, never created, because a typo should fail rather than scatter
+  files; the vault and this app's own root refused in both directions (the second is the
+  dangerous near-miss — it would overwrite the instructions this app runs under); nothing
+  deleted or renamed but its own temp file; and a preview of what would be overwritten
+  before anything is. `tests/export.test.ts` scans the source and fails if any of that stops
+  being true — verified by adding a delete and watching it fail. Do not add a fifth
+  exception without the same kind of argument *and* the same kind of test.
 - **The repo index is derived data and never authoritative.** It lives in
   `.groundwork/index/` (git-ignored), is rebuildable from the repo, and anything wrong
   with it is answered by rebuilding — so every read returns `null` rather than throwing.

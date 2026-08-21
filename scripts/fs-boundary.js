@@ -33,6 +33,21 @@ const ALLOWED = new Set([
   // of that directory is pure, which is what lets the chunking and fusion rules be tested
   // without a filesystem.
   "lib/index/store.ts",
+  /*
+   * The fourth exception, and the only one that writes OUTSIDE this application.
+   *
+   * The other three own a directory: two inside the app root, and lib/repo.ts a third tree
+   * it never writes to at all - which is the whole of that argument, and export cannot
+   * borrow it. It writes into a folder the user names, which is neither the vault nor here.
+   *
+   * So it carries its own contract instead: exactly two filenames, both constants in the
+   * module and neither taken from a caller; into an existing directory only, never created;
+   * the vault and this app's own root refused in both directions; no delete or rename of
+   * anything but its own temp file; and a preview of what it would overwrite before it
+   * writes. tests/export.test.ts scans the file and fails if any of that stops being true,
+   * the same way tests/repo.test.ts enforces read-only.
+   */
+  "lib/export.ts",
   "scripts/blueprint-lint.js",
   "scripts/fs-boundary.js",
   "playwright.config.ts",
