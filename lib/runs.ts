@@ -47,6 +47,7 @@ export function runPaths(runId: string): {
   proposal: string;
   record: string;
   stdout: string;
+  excerpts: string;
 } {
   const dir = runDir(runId);
   return {
@@ -54,6 +55,16 @@ export function runPaths(runId: string): {
     proposal: path.join(dir, "proposal.json"),
     record: path.join(dir, "run.json"),
     stdout: path.join(dir, "stdout.log"),
+    /**
+     * Repository excerpts the app retrieved for this run.
+     *
+     * This file is the whole channel between a connected repository and a spawned run.
+     * The run is never told where the repo is — `lib/ai/scope.ts` carries that argument —
+     * so the app reads the repo in process and leaves the relevant bytes here, inside the
+     * one directory the run may already read and write. It also makes the grounding check
+     * possible: verifying a quote means comparing it against bytes *this* process wrote.
+     */
+    excerpts: path.join(dir, "context", "repo-excerpts.md"),
   };
 }
 
@@ -175,6 +186,46 @@ export async function writeProposal(runId: string, proposal: unknown): Promise<v
   const { dir, proposal: file } = runPaths(runId);
   await fsp.mkdir(dir, { recursive: true });
   await fsp.writeFile(file, JSON.stringify(proposal, null, 2), "utf8");
+}
+
+/**
+ * Write the repository excerpts a run may read.
+ *
+ * Under the run directory rather than anywhere near the repo, because the run's write
+ * permission covers `.groundwork/runs/**` and nothing else — and because the excerpts are
+ * derived data belonging to one run, not a cache worth keeping.
+ */
+export async function writeExcerpts(runId: string, text: string): Promise<void> {
+  const { excerpts } = runPaths(runId);
+  await fsp.mkdir(path.dirname(excerpts), { recursive: true });
+  await fsp.writeFile(excerpts, text, "utf8");
+}
+
+/**
+ * The excerpts written for a run, or null when there are none.
+ *
+ * Null is an ordinary answer, not an error: most runs have no repository connected, and
+ * the grounding check asks for this file precisely to find out whether a code citation
+ * could have come from anywhere.
+ */
+export async function readExcerpts(runId: string): Promise<string | null> {
+  const { excerpts } = runPaths(runId);
+  try {
+    return await fsp.readFile(excerpts, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether excerpts exist, synchronously.
+ *
+ * `prepareRun` is sync — it composes an instruction and asserts it is scoped, with no
+ * reason to be async other than this question — so the check that decides whether the
+ * instruction mentions the excerpt file is a `statSync`, not a refactor of the seam.
+ */
+export function hasExcerpts(runId: string): boolean {
+  return fs.existsSync(runPaths(runId).excerpts);
 }
 
 export async function appendStdout(runId: string, chunk: string): Promise<void> {
