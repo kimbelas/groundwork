@@ -149,6 +149,42 @@ test("Escape closes the confirmation and leaves the drawer open", async ({ page 
   expect(await fsp.readFile(path.join(target, "TASKS.md"), "utf8")).toBe("old tasks\n");
 });
 
+test("refuses a file that appeared between the preview and the write", async ({ page }) => {
+  /*
+   * The gap between showing and clobbering, through the UI.
+   *
+   * The user previews an empty folder, sees "new file" twice, and clicks write — but by then
+   * something has created a CLAUDE.md. Without a precondition their "nothing to overwrite"
+   * decision destroys a file they were never shown.
+   */
+  await page.goto(`/p/${SLUG}/brief`);
+  await page.getByTestId("export-open").click();
+
+  const drawer = page.getByTestId("export-drawer");
+  await drawer.getByTestId("export-target").fill(typed(target));
+  await drawer.getByRole("button", { name: "Preview" }).click();
+  await expect(drawer.getByTestId("export-preview")).toBeVisible();
+  await expect(drawer.getByText("new file").first()).toBeVisible();
+
+  await fsp.writeFile(path.join(target, "CLAUDE.md"), "APPEARED IN THE GAP\n", "utf8");
+
+  // No confirmation dialog: this browser has nothing to confirm, which is the point.
+  await drawer.getByTestId("export-write").click();
+
+  await expect(drawer.getByTestId("export-error")).toContainText("Preview again");
+  await expect(page.getByTestId("export-confirm")).toHaveCount(0);
+  expect(await fsp.readFile(path.join(target, "CLAUDE.md"), "utf8")).toBe("APPEARED IN THE GAP\n");
+  // Not half an export either: the refusal stopped both files.
+  expect(await fsp.readdir(target)).toEqual(["CLAUDE.md"]);
+
+  // Previewing again shows the clash, and then it can be replaced deliberately.
+  await drawer.getByRole("button", { name: "Preview" }).click();
+  await expect(drawer.getByTestId("export-preview").getByText("would replace")).toBeVisible();
+  await drawer.getByTestId("export-write").click();
+  await page.getByTestId("export-confirm").getByRole("button", { name: "Replace" }).click();
+  await expect(drawer.getByTestId("export-result")).toContainText("Replaced CLAUDE.md");
+});
+
 test("refuses a folder that does not exist, and does not create it", async ({ page }) => {
   const missing = path.join(scratch, "not-here", "deeper");
 

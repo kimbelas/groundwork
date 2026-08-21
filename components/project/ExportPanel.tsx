@@ -45,8 +45,12 @@ interface Result {
  *
  * The server has to read the target directory to know what is there, and the answer is the
  * whole point: an overwrite prompt that cannot say what it destroys is one people click
- * through. So "preview" and "write" are two requests, and the second sends back the
- * preview it is confirming rather than a fresh composition.
+ * through. So "preview" and "write" are two requests.
+ *
+ * The second request re-reads the folder rather than trusting this component's copy of it,
+ * and carries the list of files this component *showed* as being replaced. Anything the
+ * fresh reading would replace that is not on that list stops the write — otherwise a file
+ * created in the gap between looking and clicking would disappear under it.
  */
 export function ExportPanel({ slug, name }: { slug: string; name: string }) {
   const [open, setOpen] = useState(false);
@@ -58,14 +62,17 @@ export function ExportPanel({ slug, name }: { slug: string; name: string }) {
   const [confirming, setConfirming] = useState(false);
   const errorId = useId();
 
-  async function send(confirm: boolean): Promise<void> {
+  async function send(confirm: boolean, acknowledge: string[] = []): Promise<void> {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/export", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ slug, target, confirm }),
+        // `acknowledge` names what this browser showed as being replaced. The server reads
+        // the folder again and refuses anything not on the list, so a file that appeared
+        // since the preview cannot be overwritten silently.
+        body: JSON.stringify({ slug, target, confirm, acknowledge }),
       });
       const data = (await res.json()) as { preview?: Preview; result?: Result; error?: string };
       if (!res.ok) throw new Error(data.error ?? `Export failed (${res.status})`);
@@ -87,7 +94,7 @@ export function ExportPanel({ slug, name }: { slug: string; name: string }) {
       setConfirming(true);
       return;
     }
-    void send(true);
+    void send(true, []);
   }
 
   return (
@@ -239,7 +246,7 @@ export function ExportPanel({ slug, name }: { slug: string; name: string }) {
           confirmLabel="Replace"
           danger
           busy={busy}
-          onConfirm={() => void send(true)}
+          onConfirm={() => void send(true, clobbering.map((f) => f.name))}
           onCancel={() => setConfirming(false)}
           testId="export-confirm"
         />

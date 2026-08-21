@@ -31,7 +31,9 @@ import type { Assumption, CardMeta, Phase, ProjectMeta, Question, Risk } from ".
  *    plausible-looking path.
  * 5. **Preview before write, always.** `previewExport` returns what exists at the target
  *    alongside what would replace it, so an overwrite is a decision rather than a
- *    discovery.
+ *    discovery. And the decision is a **precondition**: `writeExport` refuses to replace a
+ *    file the caller has not said it showed the user, so the guarantee survives the gap
+ *    between the showing and the writing.
  *
  * `tests/export.test.ts` enforces 1 and 3 by scanning this file, the way
  * `tests/repo.test.ts` enforces the read-only claim in `lib/repo.ts`. A rule stated in a
@@ -82,6 +84,35 @@ function phaseName(phases: Phase[], n: number | null): string {
   if (n === null) return "Unphased";
   const match = phases.find((p) => p.n === n);
   return match ? `Phase ${n} — ${match.name}` : `Phase ${n}`;
+}
+
+/**
+ * Push every heading in spliced prose one level deeper.
+ *
+ * `log.md` is a document in its own right and its entries are `##`, so splicing it verbatim
+ * under a `## Decisions already taken` heading made each decision a *sibling* of "The brief"
+ * and "Risks" rather than an entry inside the log. The hierarchy then lies to whatever reads
+ * the file, which for this file is the whole audience.
+ *
+ * Fenced blocks are left alone: a `#` inside a fence is a comment in someone's code sample,
+ * not a heading. Six is as deep as markdown goes, so anything already there stays put.
+ */
+export function demoteHeadings(markdown: string): string {
+  let fenced = false;
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => {
+      if (/^\s*(?:```|~~~)/.test(line)) {
+        fenced = !fenced;
+        return line;
+      }
+      if (fenced) return line;
+      const m = /^(#{1,6})(\s+)(.*)$/.exec(line);
+      if (!m) return line;
+      const hashes = m[1] ?? "";
+      return hashes.length >= 6 ? line : `#${hashes}${m[2]}${m[3]}`;
+    })
+    .join("\n");
 }
 
 /**
@@ -161,7 +192,7 @@ function composeClaudeMd(input: ExportInput): string {
   const decisions = log.trim();
   if (decisions) {
     out += heading("Decisions already taken");
-    out += `${decisions}\n\n`;
+    out += `${demoteHeadings(decisions)}\n\n`;
   }
 
   return out;
@@ -344,7 +375,17 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 async function writeOne(target: string, name: ExportFile, contents: string): Promise<void> {
   const dest = path.join(target, name);
-  const tmp = path.join(target, `.groundwork-export-${process.pid}.tmp`);
+  /*
+   * Unique per call, not per process.
+   *
+   * The dev server is one process, so a pid alone gave both files of one export - and both
+   * files of two simultaneous exports - the same temp path. `lib/vault.ts` adds a timestamp
+   * for the same reason.
+   */
+  const tmp = path.join(
+    target,
+    `.groundwork-export-${process.pid}-${Date.now().toString(36)}-${name}.tmp`,
+  );
 
   try {
     await fsp.writeFile(tmp, contents, "utf8");
@@ -372,14 +413,49 @@ export interface ExportResult {
 }
 
 /**
+ * Files this preview would replace that the caller has not said it showed the user.
+ *
+ * The precondition for an overwrite, and it is required rather than optional for the reason
+ * CLAUDE.md gives about `expectedMtimeMs`: an optional precondition is a last-writer-wins
+ * clobber waiting to happen. The concrete hole it closes is narrow and real — preview a
+ * folder with no `CLAUDE.md`, something creates one, click write, and a file the user was
+ * never shown is gone. "Never clobbers without showing the diff" has to survive the gap
+ * between the showing and the clobbering.
+ */
+export function unacknowledgedClobbers(
+  preview: ExportPreview,
+  acknowledged: readonly string[],
+): ExportFile[] {
+  const seen = new Set(acknowledged);
+  return preview.files.filter((f) => f.clobbers && !seen.has(f.name)).map((f) => f.name);
+}
+
+/**
  * Write the export.
  *
- * Takes the preview it is confirming rather than recomposing, so what the user approved is
- * what lands — the same reason the apply route re-reads the proposal instead of trusting the
- * browser's copy of it. Which files may be written is decided here from `EXPORT_FILES`, not
- * by anything a caller passes.
+ * Takes a preview rather than composing its own, so the bytes that land are the bytes that
+ * were checked against the target. Which files may be written is decided here from
+ * `EXPORT_FILES`, never by anything a caller passes — a preview naming a third path writes
+ * nothing.
+ *
+ * `acknowledged` names the files the caller has shown the user as being replaced. Anything
+ * this preview would replace that is not in that list stops the write, because the user's
+ * decision was made about a different state of the folder than the one on disk now.
  */
-export async function writeExport(preview: ExportPreview): Promise<ExportResult> {
+export async function writeExport(
+  preview: ExportPreview,
+  acknowledged: readonly string[] = [],
+): Promise<ExportResult> {
+  const surprises = unacknowledgedClobbers(preview, acknowledged);
+  if (surprises.length > 0) {
+    throw new VaultError(
+      "conflict",
+      `${surprises.join(" and ")} ${surprises.length === 1 ? "was" : "were"} created or ` +
+        `changed in that folder since the preview. Preview again to see what would be ` +
+        `replaced.`,
+    );
+  }
+
   const written: ExportFile[] = [];
   const overwritten: ExportFile[] = [];
 

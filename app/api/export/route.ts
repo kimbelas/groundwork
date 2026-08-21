@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   composeExport,
+  EXPORT_FILES,
   previewExport,
   validateTarget,
   writeExport,
@@ -19,6 +20,15 @@ const Body = z.object({
   target: z.string().min(1).max(4000),
   /** `false` composes and reports; `true` writes. Never inferred from anything else. */
   confirm: z.boolean(),
+  /**
+   * Files the browser has shown the user as being replaced.
+   *
+   * `.default([])` is safe here, unusually — it fails *closed*. An absent list means
+   * "nothing was acknowledged", so any file the fresh preview would replace stops the
+   * write. The usual danger with a default is that it invents consent; this one withholds
+   * it.
+   */
+  acknowledge: z.array(z.enum(EXPORT_FILES)).max(EXPORT_FILES.length).default([]),
 });
 
 /**
@@ -79,7 +89,16 @@ export const POST = route(
 
     if (!input.confirm) return Response.json({ preview });
 
-    return Response.json({ preview, result: await writeExport(preview) });
+    /*
+     * The preview is recomposed here rather than taken from the body, so the target is read
+     * again at the moment of writing. That is what makes the acknowledgement meaningful: a
+     * file created since the user looked shows up in *this* preview, is not in their list,
+     * and stops the write instead of vanishing under it.
+     */
+    return Response.json({
+      preview,
+      result: await writeExport(preview, input.acknowledge),
+    });
   },
   { mutating: true },
 );

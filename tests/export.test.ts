@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   composeExport,
+  demoteHeadings,
   EXPORT_FILES,
   previewExport,
+  unacknowledgedClobbers,
   validateTarget,
   writeExport,
   type ExportInput,
@@ -278,6 +280,15 @@ describe("composeExport", () => {
     expect(claude).toContain("Chose SOAP over a rewrite.");
   });
 
+  it("nests the decision log under its own heading instead of beside the others", () => {
+    // log.md entries are `##`, so splicing them verbatim made each decision a sibling of
+    // "The brief" - the hierarchy then lies to whatever reads the file.
+    const { "CLAUDE.md": claude } = composeExport(input());
+    expect(claude).toContain("## Decisions already taken");
+    expect(claude).toContain("### 2026-08-20");
+    expect(claude).not.toMatch(/^## 2026-08-20/m);
+  });
+
   it("writes words, not codes", () => {
     // P1/M are what the vault stores because a person hand-edits it. An exported file is
     // read by someone with no key to those letters.
@@ -317,6 +328,28 @@ describe("composeExport", () => {
 });
 
 // ---------------------------------------------------------------- preview and write
+
+describe("demoteHeadings", () => {
+  it("pushes each level one deeper", () => {
+    expect(demoteHeadings("# a\n## b\n### c")).toBe("## a\n### b\n#### c");
+  });
+
+  it("stops at six, which is as deep as markdown goes", () => {
+    expect(demoteHeadings("###### deep")).toBe("###### deep");
+  });
+
+  it("leaves a hash inside a fence alone", () => {
+    // That is a comment in someone's code sample, not a heading.
+    const src = "text\n```sh\n# not a heading\n```\n## real heading";
+    expect(demoteHeadings(src)).toBe("text\n```sh\n# not a heading\n```\n### real heading");
+  });
+
+  it("leaves prose untouched", () => {
+    expect(demoteHeadings("a line\n\nanother #hashtag mid-line")).toBe(
+      "a line\n\nanother #hashtag mid-line",
+    );
+  });
+});
 
 describe("previewExport and writeExport", () => {
   it("reports a fresh directory as having nothing to clobber", async () => {
@@ -362,7 +395,12 @@ describe("previewExport and writeExport", () => {
 
   it("reports which files it overwrote", async () => {
     await fsp.writeFile(path.join(target, "CLAUDE.md"), "old", "utf8");
-    const result = await writeExport(await previewExport(composeExport(input()), target));
+    // Acknowledged, because the UI would have shown it: this asserts the reporting, and
+    // the refusal when it is NOT acknowledged has its own case above.
+    const result = await writeExport(
+      await previewExport(composeExport(input()), target),
+      ["CLAUDE.md"],
+    );
 
     expect(result.overwritten).toEqual(["CLAUDE.md"]);
     expect(await fsp.readFile(path.join(target, "CLAUDE.md"), "utf8")).toContain("Portal Rebuild");
@@ -381,6 +419,71 @@ describe("previewExport and writeExport", () => {
 
     await writeExport(edited);
     expect(await fsp.readFile(path.join(target, "TASKS.md"), "utf8")).toBe("# approved contents\n");
+  });
+
+  it("refuses to replace a file that appeared after the preview", async () => {
+    /*
+     * The gap between showing and clobbering.
+     *
+     * Preview a folder with no CLAUDE.md, have something create one, then write: without a
+     * precondition the user's "nothing to overwrite here" decision silently destroys a file
+     * they were never shown. Same shape as expectedMtimeMs on a vault write, and required
+     * for the same reason - an optional precondition is a last-writer-wins clobber waiting
+     * to happen.
+     */
+    const contents = composeExport(input());
+    const clean = await previewExport(contents, target);
+    expect(clean.files.every((f) => !f.clobbers)).toBe(true);
+
+    await fsp.writeFile(path.join(target, "CLAUDE.md"), "appeared in the gap\n", "utf8");
+
+    const fresh = await previewExport(contents, target);
+    await expect(writeExport(fresh, [])).rejects.toThrow(/preview again/i);
+
+    // Untouched, and TASKS.md was not written either: the refusal is not half an export.
+    expect(await fsp.readFile(path.join(target, "CLAUDE.md"), "utf8")).toBe(
+      "appeared in the gap\n",
+    );
+    expect(await fsp.readdir(target)).toEqual(["CLAUDE.md"]);
+  });
+
+  it("writes once the clobber is acknowledged", async () => {
+    await fsp.writeFile(path.join(target, "CLAUDE.md"), "old\n", "utf8");
+    const preview = await previewExport(composeExport(input()), target);
+
+    const result = await writeExport(preview, ["CLAUDE.md"]);
+    expect(result.overwritten).toEqual(["CLAUDE.md"]);
+  });
+
+  it("acknowledging one file does not authorise the other", async () => {
+    await fsp.writeFile(path.join(target, "CLAUDE.md"), "old\n", "utf8");
+    await fsp.writeFile(path.join(target, "TASKS.md"), "old tasks\n", "utf8");
+    const preview = await previewExport(composeExport(input()), target);
+
+    await expect(writeExport(preview, ["CLAUDE.md"])).rejects.toThrow(/TASKS\.md/);
+    expect(await fsp.readFile(path.join(target, "CLAUDE.md"), "utf8")).toBe("old\n");
+  });
+
+  it("names only genuine surprises", async () => {
+    await fsp.writeFile(path.join(target, "TASKS.md"), "old tasks\n", "utf8");
+    const preview = await previewExport(composeExport(input()), target);
+
+    expect(unacknowledgedClobbers(preview, [])).toEqual(["TASKS.md"]);
+    expect(unacknowledgedClobbers(preview, ["TASKS.md"])).toEqual([]);
+    // An identical file is not a clobber, so it never needs acknowledging.
+    const same = composeExport(input());
+    await fsp.writeFile(path.join(target, "TASKS.md"), same["TASKS.md"], "utf8");
+    expect(unacknowledgedClobbers(await previewExport(same, target), [])).toEqual([]);
+  });
+
+  it("uses a temp name unique to the call, not just the process", async () => {
+    // One process writes both files of an export, and can be writing two exports at once.
+    // A pid-only temp path had them all sharing one.
+    const source = await fsp.readFile(path.join(process.cwd(), "lib", "export.ts"), "utf8");
+    const tmpLine = source.split(NL).find((l) => l.includes(".tmp`"));
+    expect(tmpLine).toBeTruthy();
+    expect(tmpLine).toContain("Date.now()");
+    expect(tmpLine).toContain("name");
   });
 
   it("ignores a filename a caller invented", async () => {

@@ -163,7 +163,9 @@ One action writes a `CLAUDE.md` and a `TASKS.md` into a chosen real project fold
 
 `CLAUDE.md` carries the brief **verbatim** rather than a summary — a summary would be this app's opinion about the user's own words — and carries open questions *as open questions*, so an agent asks instead of inventing. `TASKS.md` is a checklist grouped by phase, with cards in the Done column already ticked; it deliberately does not repeat acceptance criteria, which live in the cards and would be a second copy to drift.
 
-The target folder must already exist and may be neither the vault nor Groundwork's own directory. See the write contract in [02-architecture.md](02-architecture.md).
+The target folder must already exist and may be neither the vault nor Groundwork's own directory. The confirmation is a **precondition**: the write carries the list of files the browser showed as being replaced, the server reads the folder again, and anything it would replace that is not on that list stops the write. A file created between the preview and the click cannot vanish under it.
+
+See the write contract in [02-architecture.md](02-architecture.md).
 
 *Done when:* the exported file can be dropped into a repo and gives Claude Code enough context to start the first phase.
 

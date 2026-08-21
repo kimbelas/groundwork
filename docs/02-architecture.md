@@ -195,6 +195,13 @@ existing directory only, never created, because a typo should fail rather than s
 the vault and this app's own root refused in both directions — the second being the dangerous
 near-miss, since it would overwrite the instructions this app runs under; nothing deleted or
 renamed but its own temp file; and a preview of what would be overwritten before anything is.
+
+That last one is a precondition rather than a courtesy: `writeExport` takes the list of files
+the caller has shown the user as being replaced, and refuses anything else it would replace.
+The route re-reads the folder at write time, so a file created between the preview and the
+click stops the write instead of disappearing under it — the same reasoning as
+`expectedMtimeMs` on a vault write.
+
 `tests/export.test.ts` scans the source and fails if any of that stops being true.
 
 ### A connected repository, and why a run never learns where it is

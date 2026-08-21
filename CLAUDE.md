@@ -53,7 +53,11 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
   files; the vault and this app's own root refused in both directions (the second is the
   dangerous near-miss — it would overwrite the instructions this app runs under); nothing
   deleted or renamed but its own temp file; and a preview of what would be overwritten
-  before anything is. `tests/export.test.ts` scans the source and fails if any of that stops
+  before anything is — **carried as a precondition, not a courtesy.** `writeExport` refuses
+  to replace a file the caller has not said it showed the user, because "never clobbers
+  without showing the diff" has to survive the gap between the showing and the writing.
+  Same argument as `expectedMtimeMs`, and the browser's list fails closed: absent means
+  nothing was acknowledged. `tests/export.test.ts` scans the source and fails if any of that stops
   being true — verified by adding a delete and watching it fail. Do not add a fifth
   exception without the same kind of argument *and* the same kind of test.
 - **The repo index is derived data and never authoritative.** It lives in
