@@ -53,7 +53,7 @@ function input(over: Partial<ExportInput> = {}): ExportInput {
       stage: "building",
       health: "green",
       archetype: "client",
-      columns: DEFAULT_COLUMNS,
+      columns: [...DEFAULT_COLUMNS],
       repo: undefined,
     },
     brief: "Tenants call the office to report anything.\n\nThe work order system is a 2014 thing.",

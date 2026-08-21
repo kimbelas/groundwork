@@ -768,6 +768,73 @@ input[type="checkbox"] {
   flex-basis: 100%;
 }
 
+/* ---------------------------------------------------------------- export */
+
+.export-panel {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-6);
+}
+
+.export-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.export-blurb {
+  margin: var(--space-2) 0 0;
+  max-width: 62ch;
+}
+
+.export-form {
+  gap: var(--space-3);
+}
+
+.export-preview {
+  gap: var(--space-3);
+}
+
+.export-file {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+}
+
+.export-file-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.export-file-note {
+  margin: var(--space-2) 0 0;
+}
+
+/*
+ * What is already at the target, which is what a write would destroy.
+ *
+ * Height-capped and scrolling in both axes: it is arbitrary content from the user's disk,
+ * and neither a thousand-line file nor a single long line may push the drawer around.
+ */
+.export-file-body {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3);
+  max-height: 220px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  white-space: pre;
+}
+
 /* ---------------------------------------------------------------- index */
 
 /*

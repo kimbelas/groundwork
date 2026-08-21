@@ -60,13 +60,14 @@ groundwork/
       index/[slug]/route.ts     POST build or preview the repo index, GET search it
       log|questions|risks/      POST a decision, an answer, a register entry
       search/route.ts           GET vault-wide text search
-      export/route.ts           (P8a, not built yet) POST write agent-ready spec
+      export/route.ts           POST preview or write the agent-ready spec
   components/
     rail/            Rail, RailShell
     board/           Board, Column, CardTile, CardDetail, ColumnManager
     editor/          BriefEditor, SaveState, useAutosave, markdownHighlight
     project/         MetaBar, NewProject, ProjectTabs, ProjectDoc,
-                     RepoConnect, RepoPanel, IndexPanel, IndexControls
+                     RepoConnect, RepoPanel, IndexPanel, IndexControls,
+                     ExportPanel
     ai/              AiPanel, ProposalReview, EnhanceCard, RevertButton, useRun
     links/           Backlinks
     log/ questions/ risks/ roadmap/ theme/
@@ -83,6 +84,7 @@ groundwork/
     labels.ts        codes in files, words on screen
     ordering.ts      sparse card order arithmetic, server-side only
     git.ts           vault auto-commit (shells out to git, never imports fs)
+    export.ts        composes and writes the agent-ready spec (fourth fs exception)
     ai/
       engine.ts      AiEngine interface and engine selection
       claude-cli.ts  Claude Code CLI implementation; prepareRun is its seam
@@ -184,6 +186,16 @@ the module.
 **`lib/index/store.ts`** owns `.groundwork/index/`. The same argument as `lib/runs.ts`, and
 it is the only file under `lib/index/` that touches disk — which is what lets the chunking,
 ranking and fusion rules be tested without a filesystem.
+
+**`lib/export.ts`** is the fourth, and the only one that writes *outside this application*.
+The three above own a directory; `lib/repo.ts` reaches a third tree but never writes at all,
+which is the whole of its argument and export cannot borrow it. So it carries its own
+contract: two filenames, both constants in the module and neither taken from a caller; an
+existing directory only, never created, because a typo should fail rather than scatter files;
+the vault and this app's own root refused in both directions — the second being the dangerous
+near-miss, since it would overwrite the instructions this app runs under; nothing deleted or
+renamed but its own temp file; and a preview of what would be overwritten before anything is.
+`tests/export.test.ts` scans the source and fails if any of that stops being true.
 
 ### A connected repository, and why a run never learns where it is
 

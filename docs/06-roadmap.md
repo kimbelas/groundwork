@@ -6,8 +6,8 @@ Eight phases. Each one ends in something you can open in a browser and use. No p
 
 > **Status (2026-08-21):** Phases 1–7 complete, plus a design rebuild and a three-phase
 > repository track that this roadmap predates. ~624 unit tests, ~230 e2e, lint and typecheck
-> clean. What remains is **P8a export** (feature I1, not started) and the **P8b design
-> audit**; the plan of record for both is `.claude/plans/finish-v1.md`.
+> clean. Export (feature I1) shipped on 2026-08-21; what remains is the **P8b design
+> audit**. The plan of record is `.claude/plans/finish-v1.md`.
 >
 > **The work this roadmap did not foresee.** Eight phases were planned; three tracks
 > happened. Phases 1–7 as written; then a design rebuild (Graphite tokens, component

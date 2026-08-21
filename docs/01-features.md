@@ -159,7 +159,11 @@ Every project and every card shows what links to it, with the source line as con
 ## I. Export
 
 ### I1. Agent-ready spec
-One action writes a `CLAUDE.md` and a task checklist into a chosen real project folder on disk, derived from the brief, phases, and cards. Preview before write; never clobbers an existing `CLAUDE.md` without showing the diff.
+One action writes a `CLAUDE.md` and a `TASKS.md` into a chosen real project folder on disk, derived from the brief, phases, cards, questions, risks and the decision log. Choosing the folder and reading what would be written happens in a drawer; replacing an existing file is a blocking confirmation that names the files and shows the contents at risk.
+
+`CLAUDE.md` carries the brief **verbatim** rather than a summary — a summary would be this app's opinion about the user's own words — and carries open questions *as open questions*, so an agent asks instead of inventing. `TASKS.md` is a checklist grouped by phase, with cards in the Done column already ticked; it deliberately does not repeat acceptance criteria, which live in the cards and would be a second copy to drift.
+
+The target folder must already exist and may be neither the vault nor Groundwork's own directory. See the write contract in [02-architecture.md](02-architecture.md).
 
 *Done when:* the exported file can be dropped into a repo and gives Claude Code enough context to start the first phase.
 

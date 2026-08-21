@@ -1,6 +1,7 @@
 import { AiPanel } from "@/components/ai/AiPanel";
 import { Backlinks } from "@/components/links/Backlinks";
 import { BriefEditor } from "@/components/editor/BriefEditor";
+import { ExportPanel } from "@/components/project/ExportPanel";
 import { MetaBar } from "@/components/project/MetaBar";
 import { ProjectDocProvider } from "@/components/project/ProjectDoc";
 import { RepoPanel } from "@/components/project/RepoPanel";
@@ -33,6 +34,11 @@ export default async function BriefPage({ params }: { params: Promise<{ slug: st
         briefEmpty={project.briefEmpty}
         pendingRunId={pending?.runId ?? null}
       />
+      {/*
+        Last, because it is the last thing you do: the plan has to exist before it is worth
+        handing to an agent.
+      */}
+      <ExportPanel slug={slug} name={project.meta.name} />
       <Backlinks node={slug} />
     </ProjectDocProvider>
   );
