@@ -49,13 +49,15 @@ export const GET = route(async (req) => {
    * Verification has to compare against the bytes the model actually saw. Searching the
    * index again here would rank against the current repo state and mark a citation false
    * the moment the developer saves a file, which is the opposite of an audit trail.
+   *
+   * Not returned to the browser: the grounding report already carries each cited quote, and
+   * shipping the whole file would send several KB per poll for something nothing renders.
    */
   const excerpts = await readExcerpts(runId);
   return Response.json({
     run,
     ok: true,
     proposal: result.proposal,
-    excerpts,
     grounding: verifyGrounding(project.brief, result.proposal, excerpts),
     warnings: proposalWarnings(project.brief, result.proposal, excerpts),
   });

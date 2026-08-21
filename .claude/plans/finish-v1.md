@@ -40,10 +40,10 @@ Batches (each re-runs `warmup.setup.ts`; that is expected):
 
 | # | Command | Status |
 |---|---------|--------|
-| 1 | `pnpm test:e2e ai.spec.ts index.spec.ts repo.spec.ts` | green — 45 passed, 4.6m (iter 2, pre-route-change; ai.spec re-running) |
-| 2 | `pnpm test:e2e board.spec.ts columns.spec.ts drawer.spec.ts brief-editor.spec.ts` | green — 51 passed, 4.5m (iter 1) |
+| 1 | `pnpm test:e2e ai.spec.ts index.spec.ts repo.spec.ts` | green — ai.spec 31 (iter 3, with the new grounded cases); index+repo+brief-editor 26 (iter 3) |
+| 2 | `pnpm test:e2e board.spec.ts columns.spec.ts drawer.spec.ts brief-editor.spec.ts` | green — 51 passed (iter 1); re-running at iter 3 after the CSS change |
 | 3 | `pnpm test:e2e dashboard.spec.ts navigation.spec.ts new-project.spec.ts questions.spec.ts roadmap-log.spec.ts` | green — 66 passed, 2.4m (iter 1) |
-| 4 | `pnpm test:e2e design-system.spec.ts console.spec.ts links-search.spec.ts` | green — 64 passed, 3.4m (iter 1) |
+| 4 | `pnpm test:e2e design-system.spec.ts console.spec.ts links-search.spec.ts` | green — 64 passed (iter 3, after the globals.css change) |
 
 Rules, all from scar tissue in CLAUDE.md / `docs/06-roadmap.md`:
 
@@ -142,7 +142,7 @@ the diff review; a project with no repo (or no index) behaves exactly as today.
   warnings are their own sentence, and the proposal route reads the excerpts back off disk
   rather than re-retrieving them.
 
-- [ ] **T5. Fixture engine + e2e** — `lib/ai/fixture.ts`: when the project has a
+- [x] **T5. Fixture engine + e2e** — `lib/ai/fixture.ts`: when the project has a
   connected repo with an index, emit one card citing real excerpt text and one citing
   text the excerpts do not contain — same trick that proves the brief-grounding
   warning fires. The e2e case goes in `ai.spec.ts` (single serial file — the run lock
@@ -151,25 +151,51 @@ the diff review; a project with no repo (or no index) behaves exactly as today.
   `index.spec.ts` already built, not their fixtures).
   *Verify:* the new e2e case shows the valid citation rendered and the bogus one
   flagged.
+  **Done (iter 2):** four cases on their own fixture project (`omicron-grounded`) with its
+  own repo and index. The index is **written directly** rather than built through the UI: a
+  real build spends up to four minutes loading the embedding model to reach the same
+  excerpts, and `index.spec.ts` already covers building. One case reads
+  `.groundwork-e2e/runs/*/context/repo-excerpts.md` off disk and asserts the repo path is
+  not in it — the leak `assertInstructionScoped` cannot see, because it checks instructions
+  and this is a file.
 
-- [ ] **T6. Review UI** — `components/ai/ProposalReview.tsx`: render code citations
+- [x] **T6. Review UI** — `components/ai/ProposalReview.tsx`: render code citations
   (mono `file:line` + quote block, via `Prose`/tokens — never HTML), and a warning
   chip for an unverified code quote, visually distinct from the brief-grounding
   warning. Words on screen via `lib/labels.ts` if any code needs a label.
   *Verify:* asserted inside the T5 e2e case; `design-system.spec.ts` and
   blueprint-lint stay green.
+  **Done (iter 2):** the citation is shown rather than tucked into a `title` — it is the
+  evidence being judged, and a tooltip cannot be read on a touch screen. Quote scrolls in
+  its own box so a long source line cannot widen the page; rendered as a text node. The
+  code chip is separate from the brief chip, and a claim citing no code shows no chip at
+  all.
 
-- [ ] **T7. Staleness is said, not hidden** — the run record notes whether excerpts
+- [x] **T7. Staleness is said, not hidden** — the run record notes whether excerpts
   were included, keyword-only, or absent (and why); the run panel surfaces it. A user
   who thinks planning read their code and it didn't will blame the plan.
   *Verify:* unit test on the run record field; visible in the T5 e2e case.
+  **Done (iter 2):** `RunRepoContext` on the record — status code, excerpt count, whether
+  semantic ranking took part, plus prose. Written **before** the engine starts, so a failed
+  run still says what it was working from. Optional, so runs predating this stay readable;
+  both asserted.
 
-- [ ] **P3 gate** — full `pnpm test`, lint, typecheck, both gates, batches 1–4 status
-  reviewed; run `phase-warden` on P3. Commit(s) done.
+- [x] **P3 gate** — PASSED (iter 3). 624 unit tests, lint, typecheck, both gates clean.
+  E2E: `ai.spec.ts` 31, `index+repo+brief-editor` 26, `design-system+console+links` 64 —
+  all after the changes they cover. Reviewed inline rather than by `phase-warden` (no
+  subagents this session). Exit criteria met: a repo-connected run cites `file:line` with a
+  verified quote, an invented citation is chipped *and* warned about, and a repo-less
+  project still produces exactly its three cards with no citation UI. Two deviations, both
+  recorded above (field names, directly-written test index) and one addition (T2b). The
+  real CLI path is exercised by unit tests on the instruction only — spawning a live model
+  in the suite would assert nothing about this app, which is the standing decision for the
+  whole AI layer.
+  One cleanup found by the review: the proposal route was returning the full excerpt text to
+  the browser and nothing rendered it. Removed.
 
 ## Docs — write the P-track down
 
-- [ ] **T8. Truth up `docs/`** — `06-roadmap.md` status box: Phase 7 shipped, P1/P2
+- [x] **T8. Truth up `docs/`** — `06-roadmap.md` status box: Phase 7 shipped, P1/P2
   recorded, P3 recorded when its gate passes, counts refreshed. `01-features.md`:
   sections for repo connection, code index, repo-grounded planning (and move them out
   of "deferred" if implied there). `02-architecture.md` + `04-ai-layer.md`:
@@ -178,6 +204,10 @@ the diff review; a project with no repo (or no index) behaves exactly as today.
   here (CLAUDE.md says read them before architectural changes — they must not lie).
   *Verify:* grep docs for `lib/repo`, `lib/index`, `groundedInCode` — all present;
   no stale "Phase 7 is next".
+  **Done (iter 3):** wider than planned, because `02-architecture.md` had drifted past P1/P2
+  as well — it listed `lib/ai/proposal.ts` (now `apply.ts`), an `AiEngine` signature two
+  changes old, and component names nothing uses. Fixed in the same pass. CLAUDE.md also
+  gained four rules P3 established; that was not in this plan and should have been.
 
 ## Phase P8a — export the agent-ready spec (feature I1)
 
@@ -234,6 +264,10 @@ It needs its own contract, stated and enforced.
 (One line per loop iteration: what was done, what was launched in background, anything
 surprising. Prepend-only.)
 
+- **iter 3** — T5, T6, T7 (committed 47f9d89), T8 (356c3a3), P3 gate PASSED. Docs drift was
+  worse than this plan assumed: `02-architecture.md` described an `AiEngine` signature two
+  changes old and a module renamed long ago. E2E green on everything the changes touch:
+  31 + 26 + 64.
 - **iter 2** — T2, T2b, T3, T4 done and committed (da38f38). Batch 1 green (45) against
   T1. Found a hole in this plan: nothing assigned the production call to
   `buildRepoContext`, so T2b now exists. The slop-guard hook rejected two doc comments on
