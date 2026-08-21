@@ -155,6 +155,14 @@ const MIN_HEIGHT_DECL = /\b(?:min-height|minHeight)\s*:\s*([^;}\n]+)/gi;
 /** `--name: value` pairs in this file, so a token used below can be looked up. */
 const TOKEN_DECL = /(--[\w-]+)\s*:\s*([^;}\n]+)/g;
 
+/**
+ * A token being read. The second group says whether a fallback follows.
+ *
+ * `var(--x)` is a claim that `--x` exists; `var(--x, 12px)` is a claim that it might not.
+ * Only the first can be wrong.
+ */
+const VAR_USE = /var\(\s*(--[\w-]+)\s*([,)])/g;
+
 /** Absolute units only. `em` depends on an ancestor and cannot be resolved per-file. */
 const UNIT_PX = { px: 1, rem: 16, pt: 4 / 3, in: 96, cm: 96 / 2.54, mm: 96 / 25.4 };
 const LENGTH = /(-?[0-9.]+)(px|rem|pt|in|cm|mm)\b/gi;
@@ -179,8 +187,27 @@ const GLOBAL_TOKENS = (() => {
   }
 })();
 
+/**
+ * Tokens no stylesheet declares because the framework injects them.
+ *
+ * `next/font` sets `--font-sans` and `--font-jetbrains-mono` on a class it generates at
+ * build time, so they are real at runtime and invisible in `globals.css`. Read out of
+ * `app/layout.tsx` rather than hard-coded here: renaming a font variable there must move
+ * this list with it, or the undefined-token rule below starts lying in one direction or the
+ * other. Empty on failure, which makes the rule noisier rather than blind.
+ */
+const INJECTED_TOKENS = (() => {
+  try {
+    const src = fs.readFileSync(path.join(process.cwd(), "app", "layout.tsx"), "utf8");
+    return [...src.matchAll(/variable\s*:\s*["'](--[\w-]+)["']/g)].map((m) => m[1]);
+  } catch {
+    return [];
+  }
+})();
+
 function tokenMap(text) {
   const map = new Map();
+  for (const name of INJECTED_TOKENS) map.set(name, "injected by next/font");
   // The file under lint is read second, so a local declaration wins over the global one.
   for (const source of [GLOBAL_TOKENS, text]) {
     TOKEN_DECL.lastIndex = 0;
@@ -332,6 +359,36 @@ for (const file of files) {
   // Tokens declared in this file, so `font-size: var(--text-sm)` can be judged on the
   // value it actually resolves to rather than waved through as unparseable.
   const tokens = tokenMap(text);
+
+  /*
+   * A token that was never declared.
+   *
+   * This rule exists because it was needed: `var(--ink-2)` shipped into globals.css during
+   * the export work. There is no such token, CSS silently resolves an undeclared custom
+   * property to nothing, and the property fell back to an inherited colour — so the page
+   * looked plausible and nothing failed. The hard-coded-colour rule could not see it,
+   * because the value was not a colour at all.
+   *
+   * That is the exact failure mode this file guards against everywhere else: a design rule
+   * that does not fire reads like a design that complies. A misspelled token is worse than
+   * a literal, because a literal is at least the colour someone chose.
+   *
+   * A `var(--x, fallback)` is left alone: supplying a fallback is a deliberate statement
+   * that the token may be absent.
+   */
+  VAR_USE.lastIndex = 0;
+  let use;
+  while ((use = VAR_USE.exec(text)) !== null) {
+    const name = use[1] ?? "";
+    if (use[2] === ",") continue; // has a fallback, so absence is intended
+    if (tokens.has(name)) continue;
+    report(
+      use.index,
+      "undefined token",
+      `var(${name}) is not declared in app/globals.css or in this file. CSS resolves an ` +
+        `undeclared property to nothing, so this fails silently rather than visibly.`,
+    );
+  }
   const show = (px) => (Number.isInteger(px) ? `${px}px` : `${px.toFixed(2)}px`);
 
   FONT_DECL.lastIndex = 0;

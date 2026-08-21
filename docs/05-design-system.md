@@ -156,6 +156,9 @@ and looking generic is the specific complaint this rebuild answers.
   area from the row around them.
 - **No hard-coded colours outside the token block.** One-off literals are how a palette
   erodes. A `--custom-property: #hex` declaration is exactly where hex belongs.
+- **No tokens that were never declared.** `var(--typo)` resolves to nothing and inherits,
+  which looks fine and is not. Checked against `globals.css`, the file under lint, and the
+  font variables `next/font` injects.
 - **No second display face.** Enforced by the linter in both CSS and CSS-in-TS.
 - **No indigo, violet or purple.** Enforced twice, because neither layer is sufficient alone:
   the spec rejects hues 240–300, and the linter carries a hex list for the ones that slip
@@ -190,7 +193,17 @@ document drifted in the first place.
 
 - **`scripts/blueprint-lint.js`** runs on every `.tsx`/`.jsx`/`.ts`/`.css` edit via
   `.claude/gates.json`. It guards the type floor, the tap-target floor, hard-coded colours,
-  banned hues, the display face, and emoji.
+  banned hues, the display face, emoji, and **tokens that do not exist**.
+
+  That last rule was added after `var(--ink-2)` shipped into `globals.css`. There is no such
+  token; CSS resolves an undeclared custom property to nothing, so the colour fell back to
+  whatever it inherited and the page looked plausible. The hard-coded-colour rule could not
+  see it, because the value was not a colour — it was the absence of one. A misspelled token
+  is worse than a literal: a literal is at least a colour someone chose.
+
+  `var(--x, fallback)` is exempt, since supplying a fallback states that the token may be
+  absent. The two font variables `next/font` injects are read out of `app/layout.tsx` rather
+  than hard-coded, so renaming one there moves the exemption with it.
 
   `.ts` is in scope because CSS-in-TS is still CSS: the editor theme styles headings from a
   plain object and held one of the eight references to the display face, where no automation

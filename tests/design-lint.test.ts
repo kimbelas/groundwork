@@ -222,6 +222,48 @@ describe("the tap vocabulary is live, not decorative", () => {
   });
 });
 
+describe("undefined tokens", () => {
+  /*
+   * The rule that was missing until an export panel shipped `var(--ink-2)` into
+   * globals.css. No such token exists; CSS resolves an undeclared custom property to
+   * nothing, so the colour fell back to whatever it inherited and the page looked fine.
+   * Nothing failed, because the hard-coded-colour rule looks for literals and this was the
+   * absence of one.
+   */
+  it("catches a token nothing declares", async () => {
+    const { code, out } = await lint(`.thing { color: var(--ink-2); }`);
+    expect(code).not.toBe(0);
+    expect(out).toContain("undefined token");
+    expect(out).toContain("--ink-2");
+  });
+
+  it("accepts a token globals.css really declares", async () => {
+    // Read from the shipped file, so this cannot pass on a name that has since been renamed.
+    const { code } = await lint(`.thing { color: var(--ink-soft); }`);
+    expect(code).toBe(0);
+  });
+
+  it("accepts a token the file under lint declares itself", async () => {
+    const { code } = await lint(`:root { --local-thing: 4px; } .x { padding: var(--local-thing); }`);
+    expect(code).toBe(0);
+  });
+
+  it("leaves a var with a fallback alone", async () => {
+    // Supplying a fallback is a deliberate statement that the token may be absent.
+    const { code } = await lint(`.thing { color: var(--maybe-missing, #fff); }`);
+    expect(code).toBe(0);
+  });
+
+  it("catches it in a component too, not only in CSS", async () => {
+    const { code, out } = await lint(
+      `export const S = () => <div style={{ color: "var(--nope-not-real)" }} />;`,
+      ".tsx",
+    );
+    expect(code).not.toBe(0);
+    expect(out).toContain("undefined token");
+  });
+});
+
 describe("colour and chrome", () => {
   it("rejects a banned hex", async () => {
     const { code, out } = await lint(".x { color: #6366f1; }");

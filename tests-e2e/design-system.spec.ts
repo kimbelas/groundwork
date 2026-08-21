@@ -278,6 +278,33 @@ test.describe("typography", () => {
     expect(await collectViolations(page, "small-tap")).toEqual([]);
   });
 
+  test("the export drawer is audited too, including its error state", async ({ page }) => {
+    /*
+     * Same blind spot as the column manager, one feature later: the export drawer only
+     * exists once opened, so nothing that walks a loaded page ever measures its field, its
+     * buttons or the notice it shows when a folder is wrong.
+     *
+     * The error path is deliberately included. An error notice is the surface most likely
+     * to carry a one-off colour, because it is written once and looked at rarely.
+     */
+    await page.goto("/p/alpha-portal/brief");
+    await page.getByTestId("export-open").click();
+    await expect(page.getByTestId("export-drawer")).toBeVisible();
+
+    expect(await collectViolations(page, "purple")).toEqual([]);
+    expect(await collectViolations(page, "small-text")).toEqual([]);
+    expect(await collectViolations(page, "small-tap")).toEqual([]);
+
+    // A relative path is refused by the server, which renders the notice.
+    await page.getByTestId("export-target").fill("./not-absolute");
+    await page.getByRole("button", { name: "Preview" }).click();
+    await expect(page.getByTestId("export-error")).toBeVisible();
+
+    expect(await collectViolations(page, "purple")).toEqual([]);
+    expect(await collectViolations(page, "small-text")).toEqual([]);
+    expect(await collectViolations(page, "small-tap")).toEqual([]);
+  });
+
   test("cards are tall enough to read at a glance", async ({ page }) => {
     await page.goto("/p/eta-board/board");
     const box = await page.getByTestId("card-1").boundingBox();
@@ -452,6 +479,34 @@ test.describe("mobile at 390x844", () => {
       expect(await collectViolations(page, "overflow")).toEqual([]);
     });
   }
+
+  test("the export drawer fits, and a long file does not widen the page", async ({ page }) => {
+    // The drawer holds a <pre> of arbitrary content from the user's disk. It has to scroll
+    // inside its own box; if it widens the page instead, every screen at this width is
+    // wrong while the drawer is open.
+    await page.goto("/p/alpha-portal/brief");
+    await page.getByTestId("export-open").click();
+    await expect(page.getByTestId("export-drawer")).toBeVisible();
+
+    /*
+     * Measured at rest, not mid-slide.
+     *
+     * The drawer animates in from `translateX(16px)`, so for 160ms its right edge really is
+     * past the viewport - and the first version of this test caught exactly that, reporting
+     * a moving 11px and then 7px. A transient transform is not a layout bug, and a test that
+     * cannot tell the difference reports one at random.
+     */
+    await page.waitForFunction(() => {
+      const el = document.querySelector(".drawer");
+      return !!el && el.getAnimations().every((a) => a.playState === "finished");
+    });
+
+    expect(await collectViolations(page, "overflow")).toEqual([]);
+    const sideways = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
+    );
+    expect(sideways).toBe(false);
+  });
 
   test("the page never scrolls sideways", async ({ page }) => {
     await page.goto("/p/eta-board/board");
