@@ -151,3 +151,31 @@ test("a metadata write does not stale the editor's baseline", async ({ page }) =
   await expect(page.getByTestId("save-notice")).toHaveCount(0);
   expect(await readFixture()).toContain("Typed after a metadata change.");
 });
+
+test("the editing surface fills its frame", async ({ page }) => {
+  /*
+   * The text area you type in is the box you clicked.
+   *
+   * `.cm-content` carried `max-width: 74ch` — the right measure for reading prose, and on a
+   * wide window it left almost 40% of the bordered frame empty to the right of the caret,
+   * which reads as a broken text area rather than as typography. Reading surfaces still cap
+   * their measure; the editor does not.
+   */
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/p/${SLUG}/brief`);
+  await expect(page.locator(".cm-content")).toBeVisible();
+
+  const box = await page.evaluate(() => {
+    const frame = document.querySelector(".editor-frame");
+    const content = document.querySelector(".cm-content");
+    if (!frame || !content) return null;
+    return {
+      frame: frame.getBoundingClientRect().width,
+      content: content.getBoundingClientRect().width,
+    };
+  });
+
+  expect(box).not.toBeNull();
+  // Within the frame's 1px borders. A measure cap would leave hundreds of pixels.
+  expect(box!.frame - box!.content).toBeLessThanOrEqual(4);
+});

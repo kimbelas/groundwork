@@ -1083,7 +1083,18 @@ input[type="checkbox"] {
   padding: 22px 24px;
   caret-color: var(--accent);
   color: var(--ink);
-  max-width: 74ch;
+  /*
+   * The text fills the frame.
+   *
+   * This was `max-width: 74ch`, the typographic measure for reading prose — and on a
+   * 1108px-wide frame it left 416px, 38% of the box, visibly empty to the right of the
+   * caret. In a *reader* that trade is right. In an editor it reads as a broken text area:
+   * the box you click is not the box you type in.
+   *
+   * `Prose.tsx` still caps rendered vault prose, so the reading surfaces keep their measure.
+   * Only the editing surface fills.
+   */
+  max-width: none;
 }
 .editor-frame .cm-scroller {
   min-height: 438px;

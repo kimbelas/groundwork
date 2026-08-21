@@ -165,6 +165,11 @@ and looking generic is the specific complaint this rebuild answers.
   under it — Tailwind's `indigo-500` is hue 239.
 - **No Tailwind cool-grey utility classes** (`slate`, `zinc`, `gray`). This bans the *class
   names*; the app uses no Tailwind utilities at all.
+- **A reading surface keeps its measure; an editing surface fills its frame.** Rendered vault
+  prose caps line length, because 45–75 characters is where prose is comfortable. The brief
+  editor does not: `.cm-content` carried `max-width: 74ch` and left almost 40% of the bordered
+  frame empty on a wide window, which reads as a broken text area rather than as typography —
+  the box you click has to be the box you type in. Asserted in `brief-editor.spec.ts`.
 - **No emoji in UI chrome.** Use a status chip or an inline SVG.
 - **Never render vault prose as HTML.** Use `components/ui/Prose.tsx`; the text can come from
   an accepted AI proposal.
