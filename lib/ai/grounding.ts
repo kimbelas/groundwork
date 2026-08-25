@@ -256,9 +256,10 @@ export function proposalWarnings(
   const report = verifyGrounding(brief, proposal, excerpts);
 
   if (report.ungrounded > 0) {
+    const one = report.ungrounded === 1;
     out.push(
-      `${report.ungrounded} claim${report.ungrounded === 1 ? "" : "s"} quote the brief but the ` +
-        `quoted text is not in it. Read those especially closely.`,
+      `${report.ungrounded} ${one ? "claim quotes" : "claims quote"} the brief but the ` +
+        `quoted text is not in it. Read ${one ? "it" : "those"} especially closely.`,
     );
   }
 
