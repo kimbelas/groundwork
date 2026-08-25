@@ -79,17 +79,18 @@ Arguments are passed as an array, never as a shell string. The `cmd /c` wrapper 
 
 ### Headless permissions
 
-In `-p` (print) mode there is no human to approve tool calls: anything not pre-allowed is denied, and the run dies at its first Write. claude-coach solves this with repo-level allow rules in `.claude/settings.json`; Groundwork does the same, with one deliberate asymmetry:
+In `-p` (print) mode there is no human to approve tool calls: anything not pre-allowed is denied, and the run dies at its first Write. The original design was an allow rule scoped to the run directory; the CLI does not honour a path-scoped *allow* (verified on 2.1.235 and 2.1.245), so `--allowedTools` grants `Write` broadly and the scoping is a **denylist** in a settings file only the spawn loads:
 
 ```jsonc
-// groundwork/.claude/settings.json (excerpt)
-"allow": [
-  "Read(./**)",
-  "Write(.groundwork/runs/**)"    // and pointedly NOT Write(vault/**)
+// groundwork/.claude/run-settings.json (excerpt) — passed with --settings
+"deny": [
+  "Edit(vault/**)",              // Edit(path) covers every file-editing tool, Write included
+  "Edit(lib/**)", "Edit(app/**)", // ... every top-level source directory
+  "Bash", "WebFetch", "WebSearch"
 ]
 ```
 
-Write permission exists only under the run directory. "Do not modify any file inside vault/" stops being a polite sentence in the prompt and becomes a rule the harness enforces — a confused run that tries to edit the vault is auto-denied, not trusted.
+Rules are spelled `Edit(...)`, never `Write(...)`: only `Edit(path)` rules take part in file permission checks, and a `Write(path)` rule is ignored with a startup warning. Deny beats allow, so "do not modify any file inside vault/" stops being a polite sentence in the prompt and becomes a rule the harness enforces — a confused run that tries to edit the vault is auto-denied, not trusted. The cost of a denylist is that a new top-level directory holding source must be added to it.
 
 ### Streaming progress
 

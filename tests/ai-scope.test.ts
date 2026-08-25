@@ -263,7 +263,7 @@ describe("prepareRun — a moved vault is refused, not silently missed", () => {
   /*
    * The instruction says `vault/<slug>`, relative, because a run's write permissions are
    * globs anchored at the app root. So a vault moved with GROUNDWORK_VAULT is a project the
-   * run cannot see AND a directory `Write(vault/**)` no longer protects. Found by pointing a
+   * run cannot see AND a directory `Edit(vault/**)` no longer protects. Found by pointing a
    * real run at a throwaway vault: nothing failed, the model was simply handed the wrong
    * path. The e2e suite cannot catch it because the fixture engine takes no instruction.
    */

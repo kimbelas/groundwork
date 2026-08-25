@@ -8,9 +8,9 @@ import { VaultError } from "@/lib/errors";
  * ## The hole this closes
  *
  * `.claude/run-settings.json` is the only thing scoping what a run may write, and it is a
- * **denylist whose globs are relative to the app root** — `Write(vault/**)`,
- * `Write(lib/**)`, and so on. `--allowedTools` grants `Write` broadly because the CLI does
- * not honour a path-scoped *allow* rule (verified on 2.1.235, and recorded in that file),
+ * **denylist whose globs are relative to the app root** — `Edit(vault/**)`,
+ * `Edit(lib/**)`, and so on. `--allowedTools` grants `Write` broadly because the CLI does
+ * not honour a path-scoped *allow* rule (verified on 2.1.235 and 2.1.245, recorded in that file),
  * so everything the run must not touch has to be named explicitly.
  *
  * A connected repo sits **outside** the app root. No relative glob in that file can name

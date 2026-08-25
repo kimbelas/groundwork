@@ -35,9 +35,12 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
   plausible edit: adding "the repo is at <path>" to a prompt.
 - **The AI never writes into `vault/`.** It writes a proposal JSON to
   `.groundwork/runs/<runId>/proposal.json`. The app validates it with zod, shows a
-  diff, and applies it only on user accept — after snapshotting. Enforced by
-  `.claude/settings.json`: the spawned CLI's Write permission covers only
-  `.groundwork/runs/**`.
+  diff, and applies it only on user accept — after snapshotting. Enforced by the denylist
+  in `.claude/run-settings.json`, passed to the spawned CLI with `--settings`:
+  `Edit(vault/**)`. Spelled `Edit`, because only `Edit(path)` rules take part in file
+  permission checks and they cover Write too; a `Write(path)` rule is ignored with a
+  startup warning, and eleven of them once outweighed the stderr tail kept for a failed
+  run's real error.
 - **A write refuses frontmatter that did not parse.** `readData` swallows a YAML syntax
   error and returns `{}` so one bad file stays one bad file instead of killing a page —
   correct on the read path, destructive on the write path, where it means the

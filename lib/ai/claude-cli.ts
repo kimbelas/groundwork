@@ -68,6 +68,12 @@ const RUN_SETTINGS = process.env.GROUNDWORK_CLAUDE_SETTINGS ?? ".claude/run-sett
  * beats allow, so the boundary is real; it is just expressed as a denylist rather than an
  * allowlist. Notably `Bash` is absent here as well as denied there, so a blocked run
  * cannot shell out around the restriction.
+ *
+ * Those deny rules are spelled `Edit(...)`, never `Write(...)`. Only `Edit(path)` rules
+ * take part in file permission checks, and they cover every file-editing tool, Write
+ * included; a `Write(path)` rule is ignored and warned about on stderr. Eleven of those
+ * warnings (CLI 2.1.245) were more text than the stderr tail kept below for a failed
+ * run's error detail, so the dead spelling would have hidden the real error.
  */
 const ALLOWED_TOOLS = ["Read", "Glob", "Grep", "Write"].join(",");
 
@@ -176,7 +182,7 @@ function* parseLines(buffer: string): Generator<string> {
  * quietly reading the wrong project.
  *
  * The instruction names the project as `vault/<slug>` — relative, because the run's
- * permissions are globs anchored at the app root and `Write(vault/**)` is what stops the
+ * permissions are globs anchored at the app root and `Edit(vault/**)` is what stops the
  * model writing into the data. Two things follow, and both are load-bearing:
  *
  *  - If `GROUNDWORK_VAULT` points somewhere else, that relative path resolves to a
@@ -226,10 +232,10 @@ export function prepareRun(
   /**
    * The output path is given to the model **relative to cwd**, with forward slashes.
    *
-   * This is not cosmetic. Permission rules like `Write(.groundwork/runs/**)` are anchored
-   * at the project root, and an absolute path does not match them - so handing the model
-   * an absolute path meant its Write was denied and the run finished having composed a
-   * perfectly good proposal it could not save. Only fall back to the absolute path if the
+   * This is not cosmetic. Permission rules like `Edit(vault/**)` are anchored at the
+   * project root, and an absolute path does not match them - under an earlier allow-based
+   * profile, handing the model an absolute path meant its Write was denied and the run
+   * finished having composed a perfectly good proposal it could not save. Only fall back to the absolute path if the
    * run directory sits outside cwd, where no relative rule could apply.
    */
   assertDefaultVault(cwd);
