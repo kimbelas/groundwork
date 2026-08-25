@@ -97,6 +97,21 @@ Read `docs/` before making architectural changes. `docs/02-architecture.md` and
   and prints keyword / semantic / hybrid side by side. Any change to chunking, tokenizing,
   stopwords or fusion has to keep those numbers, because retrieval has no compile error —
   it just gets quietly worse and shows up later as planning that cites the wrong file.
+- **The eval corpus contains prose, and deleting it is the way to hollow out that gate.**
+  The corpus was written from code alone, and so could not reproduce a failure already seen
+  on the first real repository: `README.md` took rank one on *every* citation a live run
+  produced, because a document naming every subsystem matches more distinct query terms than
+  the twelve lines that answer the question. Length is now discounted in
+  `lib/index/keyword.ts` (`LENGTH_NORM_B`, BM25's `b`), which recovers eight of twelve
+  queries — but the durable half is `PROSE` in `tests/fixtures/retrieval-corpus.ts`, because
+  a corpus that cannot reproduce a production failure measures the wrong thing. A test
+  asserts those files still contribute chunks.
+- **A retrieval change states its cost as well as its win.** The length correction bought
+  keyword MRR 0.625 → 0.958 on exact terms and *cost* hybrid MRR 0.467 → 0.367 on
+  paraphrases, where the keyword half has almost no signal and normalising it only reshuffles
+  what it contributes to fusion. Recall held at 80%. Both numbers are recorded in
+  `docs/06-roadmap.md`; a change that reports only the improvement is how the next one gets
+  made blind.
 - **Snapshot before every apply.** Copy each target file into
   `vault/<slug>/.snapshots/<ISO>/` first. Revert restores the newest snapshot.
 - **One AI run at a time**, enforced by a lock file.
@@ -252,6 +267,18 @@ and this paragraph has itself been stale once, which is the point.
 - **The full suite is ~7 minutes and gets killed by long-running-command limits.**
   Running it in spec batches is equivalent and finishes: each batch re-runs the warmup
   setup, so the totals add up to the suite count plus one per extra batch.
+- **Three spec files per batch is the working size; four or more is not.** Two workers on a
+  four-core box running four specs produced an intermittent first-test failure four separate
+  times in one session — and because a serial spec file skips everything behind a failure,
+  one lost test hid twenty-three. Every one of them passed on re-run, alone and unchanged. So
+  a batch failure is a **lead, not a regression**: re-run the failing spec by itself before
+  believing it. Treating contention as a finding wastes an afternoon; treating a real
+  regression as contention is worse, and re-running is what tells them apart.
+- **Never pipe a background command through `head` or `tail`.** A pipeline exits with the
+  *last* command's status, so `pnpm lint | tail -2` reports success while eslint is failing —
+  it did, and a commit went out claiming "lint clean" when it was not. The same shape threw
+  away the detail of a failing e2e batch, leaving no evidence of which two tests failed.
+  Redirect to a file and read the file.
 - **A cold `.next-e2e` can time a test out on its own.** The per-test limit is 60s, and a
   first run after the build dir is cleared spends much of that compiling — one board case
   timed out at 60s on a 1.8-minute run and passed on the 1.2-minute re-run with no code

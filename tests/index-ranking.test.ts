@@ -189,6 +189,73 @@ describe("keywordRanking", () => {
     ];
     expect(keywordRanking(tied, "cache")).toEqual(["aaa", "zzz"]);
   });
+
+  it("does not let a paragraph about everything outrank the code that answers", () => {
+    /*
+     * The failure this ranker shipped with, and the reason for the length correction.
+     *
+     * The README is not wrong and not spam — it genuinely describes the writer, so it
+     * genuinely matches the query. It wins on breadth alone only because it is long enough
+     * to mention four subsystems, and a longer text has more chances to contain any given
+     * word. On the first real repository the app indexed, that put `README.md` at the top of
+     * every single citation, and the source the plan was supposed to be grounded in sat one
+     * rank below, outside the excerpt budget.
+     *
+     * Nothing failed when that happened, which is why this is a test and not a comment.
+     */
+    const ranked = keywordRanking(
+      [
+        {
+          id: "README.md",
+          text:
+            "Writes carry an expectedMtimeMs precondition so a file changed on disk is a " +
+            "conflict. Card order uses sparse integers. The theme persists in a cookie. " +
+            "Snapshot before every apply, and auto-commit can never fail an apply.",
+        },
+        {
+          id: "lib/writer.ts",
+          text: "export async function write(path, body, expectedMtimeMs) { assertUnchanged(); }",
+        },
+      ],
+      "expectedMtimeMs",
+    );
+    expect(ranked[0]).toBe("lib/writer.ts");
+  });
+
+  it("separates two equally broad matches by which says it in fewer words", () => {
+    // The same rule stated without the story: same terms matched, shorter text wins,
+    // because the shorter one is the denser evidence and the better thing to quote.
+    const ranked = keywordRanking(
+      [
+        { id: "long", text: `cache invalidation strategy ${"and some other prose ".repeat(20)}` },
+        { id: "short", text: "cache invalidation strategy" },
+      ],
+      "cache invalidation strategy",
+    );
+    expect(ranked[0]).toBe("short");
+  });
+
+  it("still ranks a broad match over a long one that repeats a single term", () => {
+    /*
+     * Guards the correction against overshooting. Length is DISCOUNTED, not punished: a
+     * chunk matching every term must keep beating a shorter one matching a single term,
+     * or the fix for prose has quietly become a preference for brevity over relevance.
+     */
+    const ranked = keywordRanking(
+      [
+        { id: "one-term-short", text: "cache" },
+        { id: "all-terms-longer", text: "cache invalidation strategy, described at some length" },
+      ],
+      "cache invalidation strategy",
+    );
+    expect(ranked[0]).toBe("all-terms-longer");
+  });
+
+  it("scores an all-empty corpus without producing NaN", () => {
+    // 0/0 in the length factor would make every score NaN, and NaN comparisons sort
+    // unpredictably — a ranking that reshuffles is one no regression can be proved against.
+    expect(keywordRanking([{ id: "empty", text: "" }], "cache")).toEqual([]);
+  });
 });
 
 describe("similarity", () => {

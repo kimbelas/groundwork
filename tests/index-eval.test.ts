@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { firstRelevantRank, formatReport, scoreEval } from "@/lib/index/eval";
 import { keywordRanking } from "@/lib/index/keyword";
 
-import { CASES, CHUNKS, DOCS, NL, PARAPHRASES } from "./fixtures/retrieval-corpus";
+import { CASES, CHUNKS, DOCS, NL, PARAPHRASES, PROSE } from "./fixtures/retrieval-corpus";
 
 /**
  * The retrieval regression gate.
@@ -38,7 +38,22 @@ import { CASES, CHUNKS, DOCS, NL, PARAPHRASES } from "./fixtures/retrieval-corpu
  * to make a build pass is the thing this file exists to make visible.
  */
 const RECALL_FLOOR = 0.9;
-const MRR_FLOOR = 0.8;
+
+/**
+ * Raised from 0.8 to 0.9 when prose entered the corpus, deliberately and in the same commit
+ * as the fix it locks in.
+ *
+ * 0.8 was set against a corpus of code alone, where the implementation scored a perfect
+ * 1.000 — a margin of 0.2 that meant nothing in particular. With prose in the corpus and the
+ * length correction in the ranker the score is 0.958, and on twelve cases one answer slipping
+ * from rank one to rank two costs 0.042. So 0.8 would tolerate four queries being displaced
+ * by a README before it said anything, which is most of the way back to the failure this
+ * corpus was extended to catch. 0.9 absorbs one and fires on two.
+ *
+ * There is no noise to leave room for: the corpus is fixed and the ranker is deterministic,
+ * so a tight floor costs nothing except making the next change to retrieval argue for itself.
+ */
+const MRR_FLOOR = 0.9;
 
 describe("the eval harness itself", () => {
   it("finds the rank of the first relevant result, 1-based", () => {
@@ -122,6 +137,27 @@ describe("keyword retrieval meets its floor", () => {
     // hollowed out by someone trimming the corpus.
     expect(CASES.length).toBeGreaterThanOrEqual(10);
     expect(CHUNKS.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("still contains prose, which is what makes the ranking hard", () => {
+    /*
+     * The corpus was code-only once, and could not reproduce a failure already seen in
+     * production: a README outranking source on every query, because it is longer and names
+     * every subsystem. Deleting these files would leave every number above looking healthy
+     * while measuring a corpus no real repository resembles.
+     *
+     * Asserted on the chunks rather than the map, because a prose file excluded from CHUNKS
+     * is present in the source and absent from the measurement, which is the worse version
+     * of deleting it.
+     */
+    const proseFiles = Object.keys(PROSE);
+    expect(proseFiles.length).toBeGreaterThanOrEqual(2);
+    for (const file of proseFiles) {
+      expect(
+        CHUNKS.some((c) => c.file === file),
+        `${file} is in PROSE but contributes no chunk`,
+      ).toBe(true);
+    }
   });
 
   it("does worse on a paraphrased question than on an exact term", () => {

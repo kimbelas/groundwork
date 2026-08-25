@@ -197,8 +197,78 @@ export const DISTRACTORS: Record<string, string> = {
   ].join(NL),
 };
 
-export const CHUNKS = Object.entries({ ...CORPUS, ...DISTRACTORS }).flatMap(([file, text]) =>
-  chunkFile(file, text),
+/**
+ * Prose: the distractor every real repository already has, and this corpus did not.
+ *
+ * A README, a design note, a status report. They are legitimate index entries — a person
+ * asking about a subsystem often wants the paragraph explaining it — and they are also the
+ * single most effective way to displace source from a ranking, because a document that
+ * names every subsystem once matches more distinct query terms than the file that answers
+ * the question.
+ *
+ * This was not a hypothesis. The first real repository the app was pointed at produced a
+ * plan in which **every** citation landed on `README.md`, and the corpus below could not
+ * show it: written from code alone, it had nothing long and nothing discursive, so the
+ * ranker was never asked to choose between a paragraph about a thing and the thing. A
+ * corpus that cannot reproduce the failure you have already seen in production is a corpus
+ * measuring the wrong thing.
+ *
+ * The queries in `CASES` are unchanged. What changed is that answering them now requires
+ * beating prose that talks about the same subjects, which is the actual job.
+ */
+export const PROSE: Record<string, string> = {
+  "README.md": [
+    "# Groundwork",
+    "",
+    "A local-first planning workspace. An Obsidian-style markdown vault plus an AI planning",
+    "stage, running on one loopback port.",
+    "",
+    "## Writing to the vault",
+    "",
+    "Every write carries an expectedMtimeMs precondition, so a write against a file that",
+    "changed on disk is reported as a conflict rather than clobbering it. Writes are atomic:",
+    "the contents go to a temporary file which is then renamed into place, and the rename is",
+    "retried on EPERM because Windows fails it while another handle is open.",
+    "",
+    "## The board",
+    "",
+    "Card order uses sparse integers, so moving one card rarely renumbers the column. Drag",
+    "and drop is dnd-kit, which needs a stable id or it hydrates mismatched.",
+    "",
+    "## Appearance",
+    "",
+    "Light is the default, and the theme choice persists in a cookie so the first paint is",
+    "already right.",
+    "",
+    "## Applying a proposal",
+    "",
+    "Snapshot before every apply, then write, then commit. Auto-commit is bookkeeping and can",
+    "never fail an apply. Every claim the model makes must trace to a verbatim quote, which",
+    "is checked by plain string match.",
+  ].join(NL),
+
+  "docs/status-report.md": [
+    "# Status report",
+    "",
+    "## Since last time",
+    "",
+    "Ordering held up: no column has had to be renumbered in a fortnight, and the sparse",
+    "integer scheme is doing what it was chosen for.",
+    "",
+    "## What regressed",
+    "",
+    "Two writes raced during the import and one lost, which the mtime precondition should",
+    "have caught and did not, because the importer was not carrying one.",
+    "",
+    "## Still open",
+    "",
+    "The snapshot directory is never pruned. Reverting works, and the theme cookie survives",
+    "a restart, so neither of those needs looking at this week.",
+  ].join(NL),
+};
+
+export const CHUNKS = Object.entries({ ...CORPUS, ...DISTRACTORS, ...PROSE }).flatMap(
+  ([file, text]) => chunkFile(file, text),
 );
 export const DOCS = CHUNKS.map((c) => ({ id: c.id, text: c.text }));
 

@@ -4,16 +4,24 @@ Eight phases. Each one ends in something you can open in a browser and use. No p
 
 ---
 
-> **Status (2026-08-21): all eight phases complete**, plus a design rebuild and a
-> three-phase repository track that this roadmap predates. 657 unit tests, 238 e2e, lint and
-> typecheck clean, both gates clean, retrieval numbers unmoved from P2.
+> **Status (2026-08-25): all eight phases complete**, plus a design rebuild and a
+> three-phase repository track that this roadmap predates. 703 unit tests, 240 e2e, lint and
+> typecheck clean, both gates clean.
 >
-> One thing is outstanding rather than done: the **live-model half of the verification script
-> below** (steps 3, 4, 5, 7). Those need a real spawn per run and what they test is prompt
-> quality, which this document already says is judged by hand. P3 changed `instructionFor`
-> and all three prompt files, so the real CLI path is asserted by unit tests on the
-> instruction and by e2e on the excerpt mechanics — but no live model has read the new
-> prompts. See `.claude/plans/finish-v1.md`, T13.
+> **The live-model half of the verification script below has now been run** (steps 3, 4, 5,
+> 7), twice, against a real repository. It found four defects that 667 unit tests and 238 e2e
+> could not, every one of them on the seam the fixture engine cannot stand in for: a moved
+> vault read the wrong project; ten honest citations were reported as fabrications because
+> the excerpt writer fenced with backticks and the verifier cut on `##`; one 6.8 KB README
+> exhausted the excerpt budget so the model got prose and no source; and `"medium"` was
+> rejected by a schema wanting `med`, discarding a complete and valid plan. Two fresh-context
+> reviewers then found nine more, two serious — a citation forgeable by ordinary repo content,
+> and a junction walking through both export refusals. The lesson is recorded rather than
+> just the fixes: **the surfaces a fixture engine cannot reach are where the defects were,
+> all of them.**
+>
+> One weakness came out of that live run as a measurement rather than a bug, and is now
+> fixed and gated — see *Retrieval* below.
 >
 > **The work this roadmap did not foresee.** Eight phases were planned; three tracks
 > happened. Phases 1–7 as written; then a design rebuild (Graphite tokens, component
@@ -148,11 +156,48 @@ Wiki-link parsing in the index pass, slug-before-title resolution, unresolved li
 
 ---
 
-## Phase 8 — Export and design audit *(remaining)*
+## Phase 8 — Export and design audit *(shipped)*
 
 Export agent-ready spec: preview, then write `CLAUDE.md` plus a task checklist into a chosen real project folder, with an explicit diff before overwriting anything. Then a full pass over every screen against the anti-pattern list in [05-design-system.md](05-design-system.md).
 
 **Done when:** the exported file gives Claude Code enough context to start phase 1 of the planned project, and no screen violates the anti-pattern list.
+
+---
+
+## Retrieval — the numbers, and what the last change cost
+
+Baseline for the next person who touches chunking, tokenizing, stopwords or fusion. **Not
+comparable to the numbers the P2 commit recorded**, because the corpus changed underneath
+them: it was written from code alone, and now contains two prose files. That was not a
+cosmetic addition. A live run against a real repository produced a plan in which *every*
+citation landed on `README.md` — a document naming every subsystem matches more distinct
+query terms than the lines that answer the question, and the code-only corpus had nothing
+long or discursive in it, so the gate could not see a failure already happening in
+production.
+
+`lib/index/keyword.ts` now discounts length the way BM25 does. Measured on the corpus with
+prose in it, k=5:
+
+| | keyword | semantic | hybrid |
+|---|---|---|---|
+| **Exact-term (12)** before | 100% / MRR 0.625 | 100% / 0.861 | 100% / 0.750 |
+| **Exact-term (12)** after | 100% / **0.958** | 100% / 0.861 | 100% / **0.875** |
+| **Paraphrase (5)** before | 40% / 0.400 | 100% / 0.557 | 80% / 0.467 |
+| **Paraphrase (5)** after | 40% / 0.400 | 100% / 0.557 | 80% / **0.367** |
+
+**The cost is stated because it is real.** Eight of twelve exact-term queries came back to
+rank one, and hybrid MRR on paraphrases fell by 0.100. That is the correction doing something
+useless on queries where the keyword half matched one term out of nine: normalising near-noise
+only reshuffles what it hands to fusion. Recall — whether the answer was in the top five at
+all — did not move on either set. The trade was taken because the failure it fixes was
+observed on a real repository and the one it costs was not, but a future change to the
+semantic half should know the paraphrase number is depressed and why.
+
+**Still open, honestly.** Retrieval is corrected for length, not for genre. A README is still
+a legitimate hit and often the right one; nothing here teaches the ranker that a *planning*
+question wants source. `b` was measured flat across 0.25–0.75 rather than fitted, so the
+gain is the correction and not the constant — but the next real improvement is a bigger,
+more varied corpus, not a better number on this one.
 
 ---
 

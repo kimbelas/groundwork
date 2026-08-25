@@ -56,7 +56,9 @@ Batches (each re-runs `warmup.setup.ts`; that is expected):
 All 16 spec files are covered by those four batches: 238 tests including one warmup each,
 so 234 real tests. **Seven spec files in one batch is too heavy for this box** — the first
 attempt at batch 3 ran seven and lost `roadmap-log`'s mtime-conflict test to contention,
-which passed 24/24 when re-run alone. Three to five specs is the working size.
+which passed 24/24 when re-run alone. Three to five specs looked like the working size
+here; four more contention failures later in the same session settled it at **three** —
+see the rule in CLAUDE.md, which is the authority.
 
 Rules, all from scar tissue in CLAUDE.md / `docs/06-roadmap.md`:
 
