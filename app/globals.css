@@ -83,7 +83,16 @@
    * the toast layer needs the number, to sit under the header instead of over it, and a
    * literal there would be a magic constant nothing keeps in step with the header itself.
    */
-  --topbar-h: 65px;
+  /*
+     The bar's real height, and it is pinned to this rather than derived from its contents.
+
+     The rail is `100vh` and starts BELOW the bar, so any disagreement between this number
+     and the rendered height pushes the rail's footer off the bottom of the screen by exactly
+     that much. It did: the bar became permanent, measured 67px against a token that said 65,
+     and the theme toggle rendered at y=901 in a 900px viewport - entirely below the fold,
+     with the Settings link clipped above it.
+  */
+  --topbar-h: 67px;
 
   /*
    * Spacing, type and control scales.
@@ -366,7 +375,9 @@ a:hover {
 .shell {
   display: grid;
   grid-template-columns: var(--rail-w) minmax(0, 1fr);
-  min-height: 100vh;
+  /* What is left under the bar. `100vh` here adds the bar's height to the page and gives
+     every screen a scrollbar it did not need. */
+  min-height: calc(100vh - var(--topbar-h));
 }
 
 /*
@@ -393,7 +404,10 @@ a:hover {
   position: sticky;
   top: 0;
   z-index: 30;
-  padding: 10px var(--pane-x) 10px calc(var(--rail-w) + var(--pane-x));
+  /* Pinned, so the rail's `calc(100vh - var(--topbar-h))` cannot drift out of agreement
+     with what actually renders. */
+  height: var(--topbar-h);
+  padding: 0 var(--pane-x) 0 calc(var(--rail-w) + var(--pane-x));
   background: var(--surface-2);
   border-bottom: 1px solid var(--line);
 }
@@ -417,8 +431,9 @@ a:hover {
   border-right: 1px solid var(--line);
   padding: 22px 0 28px;
   position: sticky;
-  top: 0;
-  height: 100vh;
+  /* Below the bar, and only as tall as what is left under it. */
+  top: var(--topbar-h);
+  height: calc(100vh - var(--topbar-h));
   overflow-y: auto;
   /* A column so the footer can sit at the bottom rather than under the last project. */
   display: flex;
@@ -2151,7 +2166,9 @@ textarea.input {
   }
 
   .topbar {
-    /* No rail to clear at this width, and the menu button and brand come back. */
+    /* No rail to clear at this width, and the menu button and brand come back. The height
+       goes back to auto because the search drops onto its own row below them. */
+    height: auto;
     padding: 10px 16px;
     flex-wrap: wrap;
   }
