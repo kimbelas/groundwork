@@ -79,7 +79,10 @@ test.describe("vault rail", () => {
     const rail = page.getByRole("navigation", { name: "Vault" });
 
     await expect(rail.getByRole("link", { name: /Alpha Portal/ })).toBeVisible();
-    await expect(rail.getByRole("link", { name: /Gamma Questions/ })).toContainText("2?");
+    // The count is a badge whose accessible name says what the number means.
+    await expect(
+      rail.getByRole("link", { name: /Gamma Questions/ }).getByLabel("2 open questions"),
+    ).toHaveText("2");
 
     // Archived projects stay out of the rail entirely.
     await expect(rail.getByRole("link", { name: /Delta Archived/ })).toHaveCount(0);

@@ -1,11 +1,9 @@
 import { AiPanel } from "@/components/ai/AiPanel";
 import { Backlinks } from "@/components/links/Backlinks";
 import { BriefEditor } from "@/components/editor/BriefEditor";
-import { ExportPanel } from "@/components/project/ExportPanel";
 import { MetaBar } from "@/components/project/MetaBar";
 import { ProjectDocProvider } from "@/components/project/ProjectDoc";
-import { RepoPanel } from "@/components/project/RepoPanel";
-import { listRuns } from "@/lib/runs";
+import { activeRunFor, pendingRunFor } from "@/lib/runs";
 import { getProject } from "@/lib/vault";
 
 export const dynamic = "force-dynamic";
@@ -14,32 +12,46 @@ export default async function BriefPage({ params }: { params: Promise<{ slug: st
   const { slug } = await params;
   const project = await getProject(slug);
 
-  // A run that finished while the tab was closed still has its proposal on disk; offer
-  // it rather than making the user run synthesis again.
-  const pending = (await listRuns(slug)).find((r) => r.status === "ready" && !r.appliedAt);
+  /*
+   * Two different questions about the same directory, asked together.
+   *
+   * `pending` - a run that FINISHED while the tab was closed still has its proposal on
+   * disk; offer it rather than making the user run synthesis again.
+   *
+   * `active` - a run that is STILL WORKING. The run outlives the response that started it,
+   * so a tab switch leaves the work going with nothing on screen saying so; without this
+   * the page came back showing idle buttons over a locked project.
+   *
+   * Project-level jobs only in both cases: a card's enhancement belongs to the card, and
+   * used to show up here by mistake.
+   */
+  const [pending, active] = await Promise.all([
+    pendingRunFor(slug, { job: ["synthesize", "critique"] }),
+    activeRunFor(slug, ["synthesize", "critique"]),
+  ]);
 
   return (
     <ProjectDocProvider slug={slug} initialMtimeMs={project.mtimeMs}>
+      {/*
+        One vertical rhythm for the whole page. Each panel used to carry its own one-sided
+        margin, so wherever two met on the wrong sides there was no gap at all.
+
+        What the Brief is now: the metadata, the document, and the thing that reads it. The
+        repository, export and delete panels moved to the Settings tab - they are things you
+        do to the project, not parts of the plan, and stacked here they pushed synthesis into
+        the middle of a long scroll.
+      */}
+      <div className="page-blocks">
       <MetaBar meta={project.meta} />
       <BriefEditor initialBody={project.brief} />
-      {/*
-        Below the brief, above the AI panel, and that order is the argument: the brief says
-        what is intended, the repo is what exists, and synthesis reads both. Rendered as a
-        slot inside the provider because connecting writes project.md, which the editor and
-        the meta bar also write - one baseline for the file, per CLAUDE.md.
-      */}
-      <RepoPanel meta={project.meta} />
       <AiPanel
         slug={slug}
         briefEmpty={project.briefEmpty}
         pendingRunId={pending?.runId ?? null}
+        activeRun={active ? { runId: active.runId, startedAt: active.startedAt } : null}
       />
-      {/*
-        Last, because it is the last thing you do: the plan has to exist before it is worth
-        handing to an agent.
-      */}
-      <ExportPanel slug={slug} name={project.meta.name} />
       <Backlinks node={slug} />
+      </div>
     </ProjectDocProvider>
   );
 }

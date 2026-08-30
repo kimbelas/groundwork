@@ -3,6 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { runAskedLabel } from "@/lib/labels";
+
+import { useAnswerSuggestions } from "./useAnswerSuggestions";
+
 import type { Question } from "@/lib/schema";
 
 /**
@@ -16,12 +20,23 @@ export function QuestionsList({
   slug,
   initial,
   initialMtimeMs,
+  activeRunId = null,
+  readyRunId = null,
 }: {
   slug: string;
   initial: Question[];
   initialMtimeMs: number;
+  /** A `suggest-answers` run still working, found on the server at render time. */
+  activeRunId?: string | null;
+  /** One that finished earlier — its options are still on disk and worth offering. */
+  readyRunId?: string | null;
 }) {
   const router = useRouter();
+  const openIds = useMemo(
+    () => initial.filter((q) => q.status === "open").map((q) => q.id),
+    [initial],
+  );
+  const suggestions = useAnswerSuggestions(slug, activeRunId, readyRunId, openIds);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +116,7 @@ export function QuestionsList({
   }
 
   return (
-    <div className="stack" style={{ gap: 22 }} data-testid="questions-list">
+    <div className="stack" style={{ gap: "var(--space-5)" }} data-testid="questions-list">
       {error && (
         <div className="notice body-sm" role="alert" data-testid="questions-error">
           {error}
@@ -109,7 +124,31 @@ export function QuestionsList({
       )}
 
       <section>
-        <p className="label">Open ({open.length})</p>
+        <div className="row question-head">
+          <p className="label">Open ({open.length})</p>
+          {/*
+            No button. The run starts on arrival - a question with no options is a question
+            you answer from a blank box, which is the thing this removes, so putting it
+            behind a click withheld the help exactly when it was most useful.
+          */}
+          {suggestions.running && (
+            <span className="body-sm faint" data-testid="suggestions-running">
+              Drafting answers...
+            </span>
+          )}
+        </div>
+
+        {suggestions.error && (
+          <div className="notice body-sm" role="alert" data-testid="suggestions-error">
+            {suggestions.error}
+          </div>
+        )}
+
+        {suggestions.summary && (
+          <p className="body-sm soft" data-testid="suggestions-summary">
+            {suggestions.summary}
+          </p>
+        )}
         {open.length === 0 ? (
           <p className="body-sm faint">Everything asked so far has been answered.</p>
         ) : (
@@ -117,11 +156,60 @@ export function QuestionsList({
             {open.map((q) => (
               <li key={q.id} className="question" data-testid={`question-${q.id}`}>
                 <p className="question-text">{q.text}</p>
+
+                {(suggestions.byQuestion.get(q.id) ?? []).length > 0 && (
+                  <ul className="answer-options" data-testid={`options-${q.id}`}>
+                    {(suggestions.byQuestion.get(q.id) ?? []).map((opt, i) => {
+                      const chosen = (drafts[q.id] ?? "") === opt.text;
+                      return (
+                        <li key={`${q.id}-${i}`}>
+                          <button
+                            type="button"
+                            className={`answer-option${chosen ? " answer-option-chosen" : ""}`}
+                            aria-pressed={chosen}
+                            disabled={busy === q.id}
+                            /*
+                              Fills the box rather than saving. The answer is stored as a
+                              confirmed fact given to every later run, so the last edit before
+                              it becomes one should be the user's - and a one-click store makes
+                              a misread option permanent.
+                            */
+                            onClick={() => setDrafts((d) => ({ ...d, [q.id]: opt.text }))}
+                            data-testid={`option-${q.id}-${i}`}
+                          >
+                            <span className="answer-option-head">
+                              <span className="answer-option-text">{opt.text}</span>
+                              {opt.recommended && (
+                                <span
+                                  className="chip chip-active answer-option-pill"
+                                  data-testid={`recommended-${q.id}`}
+                                >
+                                  Recommended
+                                </span>
+                              )}
+                            </span>
+                            {opt.because && (
+                              <span className="answer-option-why body-sm">{opt.because}</span>
+                            )}
+                            <span className="answer-option-source body-sm">
+                              {opt.groundedIn ? "Quoted from the brief" : "Inferred, not stated"}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
                 <textarea
                   className="input"
                   rows={2}
                   aria-label={`Answer: ${q.text}`}
-                  placeholder="Answer it, or leave it open."
+                  placeholder={
+                    (suggestions.byQuestion.get(q.id) ?? []).length > 0
+                      ? "Or write your own answer."
+                      : "Answer it, or leave it open."
+                  }
                   value={drafts[q.id] ?? ""}
                   disabled={busy === q.id}
                   onChange={(e) => setDrafts((d) => ({ ...d, [q.id]: e.target.value }))}
@@ -136,7 +224,15 @@ export function QuestionsList({
                   >
                     {busy === q.id ? "Saving..." : "Answer"}
                   </button>
-                  {q.fromRun && <span className="mono faint">from {q.fromRun}</span>}
+                  {q.fromRun && (
+                    /*
+                      The run id in the tooltip, a date on screen. It is not interactive and
+                      not actionable - it was competing for attention with the answer box.
+                    */
+                    <span className="body-sm faint" title={q.fromRun}>
+                      {runAskedLabel(q.fromRun) ?? "Asked by an AI run"}
+                    </span>
+                  )}
                 </div>
               </li>
             ))}

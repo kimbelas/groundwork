@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 
 import { Chip } from "@/components/ui/Chip";
 import { Notice } from "@/components/ui/Notice";
+import { Select } from "@/components/ui/Select";
 import { healthTone, stageTone } from "@/lib/format";
 import { archetypeLabel, healthLabel, stageLabel } from "@/lib/labels";
 import { resolveOptimistic, type Optimistic } from "@/lib/optimistic";
@@ -102,12 +103,11 @@ export function MetaBar({ meta }: { meta: ProjectMeta }) {
     <div className="metabar" data-testid="meta-bar">
       <label className="metabar-field">
         <span className="label">Stage</span>
-        <select
-          className="select"
+        <Select
+          label="Stage"
           value={stage}
           disabled={doc.conflicted}
           onChange={(e) => void apply("stage", e.target.value as ProjectMeta["stage"])}
-          aria-label="Stage"
         >
           {/* Value stays the stored code; only the text is a word. */}
           {STAGES.map((s) => (
@@ -115,43 +115,41 @@ export function MetaBar({ meta }: { meta: ProjectMeta }) {
               {stageLabel(s)}
             </option>
           ))}
-        </select>
+        </Select>
         <Chip tone={stageTone(stage)}>{stageLabel(stage)}</Chip>
       </label>
 
       <label className="metabar-field">
         <span className="label">Health</span>
-        <select
-          className="select"
+        <Select
+          label="Health"
           value={health}
           disabled={doc.conflicted}
           onChange={(e) => void apply("health", e.target.value as ProjectMeta["health"])}
-          aria-label="Health"
         >
           {HEALTHS.map((h) => (
             <option key={h} value={h}>
               {healthLabel(h)}
             </option>
           ))}
-        </select>
+        </Select>
         <Chip tone={healthTone(health)}>{healthLabel(health)}</Chip>
       </label>
 
       <label className="metabar-field">
         <span className="label">Archetype</span>
-        <select
-          className="select"
+        <Select
+          label="Archetype"
           value={archetype}
           disabled={doc.conflicted}
           onChange={(e) => void apply("archetype", e.target.value as ProjectMeta["archetype"])}
-          aria-label="Archetype"
         >
           {ARCHETYPES.map((a) => (
             <option key={a} value={a}>
               {archetypeLabel(a)}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
 
       {error && <Notice className="metabar-error">{error}</Notice>}

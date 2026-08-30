@@ -7,6 +7,21 @@ import { useState } from "react";
 /**
  * A board lane. Separated by a vertical rule rather than a gap, and droppable in its
  * own right so an empty column can still receive a card.
+ *
+ * ## Why the list scrolls and the footer does not
+ *
+ * A first synthesis puts a dozen cards in one column, and an uncapped lane grows past the
+ * bottom of the screen — so reading the second column means scrolling the page down and the
+ * board sideways at the same time, and the column headings leave the viewport while you do
+ * it. `.column-body` caps at roughly five cards and scrolls inside itself instead.
+ *
+ * "Add a card" moved out of that scroll area for the reason the cap exists: in a column of
+ * fourteen it sat fourteen cards down, so the way to add a card was to scroll past every
+ * card you were not adding. It is a footer now, always reachable.
+ *
+ * The droppable stays on the scrolling list, not on the section. It is the region a card can
+ * actually land in, it is what `dragCardTo` in the e2e suite targets, and dnd-kit auto-scrolls
+ * a scrollable drop target while you drag near its edge.
  */
 export function Column({
   name,
@@ -58,7 +73,9 @@ export function Column({
 
       <div ref={setNodeRef} className="column-body" data-testid={`column-${name}`}>
         {children}
+      </div>
 
+      <div className="column-foot">
         {adding ? (
           <form onSubmit={create} className="stack" style={{ gap: 6 }}>
             <input

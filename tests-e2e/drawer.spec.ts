@@ -8,7 +8,12 @@ import { expect, test } from "@playwright/test";
  * shared layer stack, so Escape closes exactly one thing.
  */
 
-const BOARD = "eta-board";
+/*
+ * Its own project, per CLAUDE.md. This spec used to borrow eta-board, which board.spec.ts
+ * resets before every test and rewrites in most of them; with two workers the criterion
+ * these tests click on could vanish under them. Nothing here writes, so nothing here resets.
+ */
+const BOARD = "mu-drawer";
 
 test.describe("the card drawer", () => {
   test("opens from a card and names the card it opened", async ({ page }) => {
@@ -75,6 +80,69 @@ test.describe("the card drawer", () => {
 
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("card-1")).toBeFocused();
+  });
+
+  test("Escape while editing a criterion closes the editor, not the drawer", async ({ page }) => {
+    /*
+     * The editor pushes its own dismiss layer while it is open, so it is the top of the
+     * stack: one Escape cancels the edit, the next closes the drawer. A key handler on the
+     * input would have let the drawer's listener fire too and close both — the same bug as
+     * a confirmation over a drawer, fixed the same way.
+     */
+    await page.goto(`/p/${BOARD}/board`);
+    await page.getByTestId("card-1").click();
+    const drawer = page.getByTestId("card-detail");
+    await expect(drawer).toBeVisible();
+
+    await drawer.getByTestId("criterion-edit-0").click();
+    await expect(drawer.getByTestId("criterion-input")).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(drawer.getByTestId("criterion-input")).toHaveCount(0);
+    await expect(drawer).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("card-detail")).toHaveCount(0);
+  });
+
+  test("Escape in a non-empty add field clears it; the next Escape closes the drawer", async ({
+    page,
+  }) => {
+    await page.goto(`/p/${BOARD}/board`);
+    await page.getByTestId("card-1").click();
+    const drawer = page.getByTestId("card-detail");
+    await expect(drawer).toBeVisible();
+
+    const field = drawer.getByLabel("New criterion");
+    await field.fill("half a thought");
+    await page.keyboard.press("Escape");
+    await expect(field).toHaveValue("");
+    await expect(drawer).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("card-detail")).toHaveCount(0);
+  });
+
+  test("every criteria control has an accessible name", async ({ page }) => {
+    await page.goto(`/p/${BOARD}/board`);
+    await page.getByTestId("card-1").click();
+    const drawer = page.getByTestId("card-detail");
+    await drawer.getByTestId("criterion-edit-1").click();
+
+    const unnamed = await drawer.getByTestId("criteria").evaluate((root) =>
+      [...root.querySelectorAll("button, input")]
+        .filter((el) => {
+          // A name comes from aria-label, from the control's own text, or from the label
+          // that wraps it (the checkbox). `||`, not `??`: an empty innerText is not a name.
+          const name =
+            el.getAttribute("aria-label") ||
+            (el as HTMLElement).innerText?.trim() ||
+            (el.closest("label")?.textContent ?? "").trim();
+          return !name;
+        })
+        .map((el) => el.outerHTML.slice(0, 80)),
+    );
+    expect(unnamed).toEqual([]);
   });
 });
 

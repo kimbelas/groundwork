@@ -50,6 +50,8 @@ groundwork/
       roadmap/page.tsx
       log/page.tsx
       questions/page.tsx
+      cards/[id]/page.tsx       One card as a page: description, CardEditor, backlinks
+    settings/page.tsx           Which Claude account the CLI is signed into, and how to connect
     api/
       vault/route.ts            GET list projects, POST create project
       vault/[slug]/route.ts     GET project bundle, PATCH file write
@@ -57,27 +59,33 @@ groundwork/
       ai/run/route.ts           GET SSE: retrieve repo context, spawn CLI, stream progress
       ai/proposal/route.ts      GET proposal + grounding report, POST accept/reject
       ai/revert/route.ts        POST restore the newest snapshot
+      ai/runs/route.ts          GET one card's enhance runs, newest first
+      ai/account/route.ts       GET the CLI's account status (cached a minute; ?refresh=1)
       index/[slug]/route.ts     POST build or preview the repo index, GET search it
       log|questions|risks/      POST a decision, an answer, a register entry
       search/route.ts           GET vault-wide text search
       export/route.ts           POST preview or write the agent-ready spec
   components/
     rail/            Rail, RailShell
-    board/           Board, Column, CardTile, CardDetail, ColumnManager
+    board/           Board, Column, CardTile, CardDetail (the drawer frame), CardEditor
+                     (everything inside it; the card page renders it too), ColumnManager
     editor/          BriefEditor, SaveState, useAutosave, markdownHighlight
     project/         MetaBar, NewProject, ProjectTabs, ProjectDoc,
                      RepoConnect, RepoPanel, IndexPanel, IndexControls,
                      ExportPanel
-    ai/              AiPanel, ProposalReview, EnhanceCard, RevertButton, useRun
+    ai/              AiPanel, ProposalReview, EnhanceCard, EnhanceHistory, RevertButton, useRun
+    settings/        AccountStatus
     links/           Backlinks
     log/ questions/ risks/ roadmap/ theme/
-    ui/              Button, IconButton, Input, Chip, Notice, Drawer,
+    ui/              Button, IconButton, Input, Select, Badge, Chip, Notice, Drawer,
                      ConfirmDialog, Placeholder, Prose, cx
   lib/
     vault.ts         the only module that touches disk (see the exceptions below)
     runs.ts          owns .groundwork/runs/ - proposals, excerpts, the run lock
     repo.ts          reads a connected repository; read-only, never inside vault/
     schema.ts        zod schemas for frontmatter
+    checklist.ts     acceptance criteria as task-list lines: parse, tick, add, rename, remove, move
+    writeChain.ts    one serialised write queue per file; owns the mtime baseline between writes
     links.ts         wiki-link parsing and the link graph
     nextAction.ts    the dashboard heuristic
     dismiss.ts       one Escape listener and a stack of layers
@@ -93,6 +101,8 @@ groundwork/
       scope.ts       refuses to name any path outside the app root to a run
       grounding.ts   verifies quotes against the brief and against the excerpts
       apply.ts       apply-with-snapshot, revert
+      merge.ts       an update merged over the card's own checklist; the review and the apply share it
+      account.ts     which account the CLI is signed into, asked via `claude auth status --json`
       types.ts       job, event, proposal and run-record schemas
     index/
       build.ts       walk, hash, chunk, embed - incremental by content hash
@@ -235,7 +245,7 @@ out of chunk *text*, since a repo can contain its own absolute path in a config 
 
 **Read path.** Server component calls `vault.getProject(slug)` → index cache hit or a parse of the project folder → typed object → rendered. No client fetch for initial paint.
 
-**Write path (human).** Client component POSTs to a route handler carrying the `mtimeMs` it loaded → handler validates input → `vault.write*()` checks that precondition and refuses with 409 if the file changed underneath (an AI apply, a second tab, Obsidian) → file written, that project's index entry invalidated → `router.refresh()`. The 409 surfaces as "changed on disk — reload", never a silent last-writer-wins clobber. Without this, the brief editor's 1-second autosave would overwrite an AI apply that landed mid-edit — both write `project.md`.
+**Write path (human).** Client component POSTs to a route handler carrying the `mtimeMs` it last saw — the one it loaded, or the one its previous write returned (`ProjectDocProvider` owns that for `project.md`; `lib/writeChain.ts` owns it for a card wherever `CardEditor` renders — the drawer or the card's page — so two edits in one tick never share a stale baseline) → handler validates input → `vault.write*()` checks that precondition and refuses with 409 if the file changed underneath (an AI apply, a second tab, Obsidian) → file written, that project's index entry invalidated → `router.refresh()`. The 409 surfaces as "changed on disk — reload", never a silent last-writer-wins clobber. Without this, the brief editor's 1-second autosave would overwrite an AI apply that landed mid-edit — both write `project.md`.
 
 **Write path (AI).** Client opens SSE to `/api/ai/run` → handler acquires the lock and spawns the CLI → progress events stream back → CLI writes `proposal.json` and exits → handler emits `done` with the `runId` → client navigates to the diff review → user accepts blocks → POST to `/api/ai/proposal` → snapshot, then `vault.write*()` for accepted blocks only.
 

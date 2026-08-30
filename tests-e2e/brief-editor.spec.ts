@@ -179,3 +179,50 @@ test("the editing surface fills its frame", async ({ page }) => {
   // Within the frame's 1px borders. A measure cap would leave hundreds of pixels.
   expect(box!.frame - box!.content).toBeLessThanOrEqual(4);
 });
+
+const EOL_PAIR = String.fromCharCode(10) + String.fromCharCode(10);
+
+test("scrolls inside its own frame instead of clipping the brief", async ({ page }) => {
+  /*
+   * The regression this pins.
+   *
+   * `@uiw/react-codemirror` renders a wrapper div between `.editor-frame` and `.cm-editor`,
+   * and nothing sized it. `height: 100%` on `.cm-editor` therefore resolved against an
+   * auto-height parent - where it behaves as `auto` - so the editor grew to its content
+   * inside a fixed 60vh frame whose `overflow: hidden` clipped it. A long brief lost
+   * everything past the fold with no scrollbar anywhere, and the page scrollbar was no help
+   * because the frame never grows to reveal what it hides.
+   *
+   * Asserted on the geometry rather than on a CSS property, because the failure was a
+   * cascade resolution and not a missing declaration: every rule involved was present and
+   * correct, and the box was still wrong.
+   */
+  // 120 paragraphs: comfortably taller than the 60vh frame at any viewport.
+  const LONG = Array.from({ length: 120 }, () => "A paragraph worth reading.").join(EOL_PAIR);
+  await fsp.writeFile(FILE, FRONTMATTER + EOL_PAIR + LONG + EOL_PAIR, "utf8");
+
+  await page.goto(`/p/${SLUG}/brief`);
+  await page.waitForSelector(".cm-content");
+
+  const box = await page.evaluate(() => {
+    const frame = document.querySelector(".editor-frame");
+    const scroller = document.querySelector(".editor-frame .cm-scroller");
+    if (!frame || !scroller) return null;
+    const before = scroller.scrollTop;
+    scroller.scrollTop = 300;
+    const after = scroller.scrollTop;
+    scroller.scrollTop = before;
+    return {
+      frameClips: frame.scrollHeight > frame.clientHeight + 1,
+      scrollerScrolls: scroller.scrollHeight > scroller.clientHeight + 1,
+      moved: after,
+    };
+  });
+
+  expect(box).not.toBeNull();
+  // The frame holds its size and hides nothing of its own...
+  expect(box!.frameClips).toBe(false);
+  // ...because the scroller inside it is what overflows, and it really moves.
+  expect(box!.scrollerScrolls).toBe(true);
+  expect(box!.moved).toBeGreaterThan(0);
+});

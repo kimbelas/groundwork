@@ -2,6 +2,8 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { Badge } from "@/components/ui/Badge";
+import { openQuestionsLabel } from "@/lib/labels";
 import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 import { listProjects } from "@/lib/vault";
 
@@ -48,9 +50,9 @@ export async function Rail() {
                     {entry.summary.meta.name}
                   </span>
                   {entry.summary.openQuestions > 0 && (
-                    <span className="mono faint" title="Open questions">
-                      {entry.summary.openQuestions}?
-                    </span>
+                    <Badge label={openQuestionsLabel(entry.summary.openQuestions)}>
+                      {entry.summary.openQuestions}
+                    </Badge>
                   )}
                 </Link>
               ) : (
@@ -65,6 +67,9 @@ export async function Rail() {
       )}
 
       <div className="rail-foot">
+        <Link href="/settings" className="rail-link rail-settings" data-testid="rail-settings">
+          Settings
+        </Link>
         <ThemeToggle initial={theme} />
       </div>
     </nav>

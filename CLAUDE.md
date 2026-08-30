@@ -146,7 +146,15 @@ and this paragraph has itself been stale once, which is the point.
   one cannot slip under a floor, but it cannot resolve a root size declared in another
   file. Do not author the scale in `rem` and rely on the check.
 - **No hard-coded colours outside the token block** in `globals.css`. Use `--ink`,
-  `--surface`, `--line`, `--accent`, or a `--s-*` status hue.
+  `--surface`, `--line`, `--accent`, or a `--s-*` status hue. Text on the solid accent fill
+  is `--on-accent`; the linter's `#fff` exemption that used to cover it is gone.
+- **A primitive owns the sizing of what it wraps.** `IconButton` sizes its glyph to 16px in
+  CSS, because an inline `<svg>` with only a `viewBox` has no intrinsic size and the drawer's
+  close button rendered as an empty square. `Select` (`components/ui/Select.tsx`) wraps the
+  native element so the chevron can be an inline SVG sibling — a data-URI background sees
+  neither `currentColor` nor the theme tokens. Raw `<select className="select">` is not used
+  anywhere; go through the primitive. Both take a required `label`, because the e2e suite
+  finds them by name.
 - **No indigo, violet or purple** — the generic-AI tell, and the one hue family both
   enforcement layers hunt for. The e2e audit rejects computed hues 240–300 above 0.15
   saturation, so a new accent must sit below 240 or above 300; Graphite's is around 166 and
@@ -163,7 +171,9 @@ and this paragraph has itself been stale once, which is the point.
   of layers, and only the top one is dismissed. Binding your own is how a confirmation over
   a drawer closed both — the user cancelled one thing and lost two. `stopPropagation` does
   not help, because both handlers sit on the same target. This is the fourth bug of that
-  shape in this codebase.
+  shape in this codebase. An inline editor inside a drawer pushes its own layer while it is
+  open (`CriterionEditor` in `CardDetail.tsx`), so Escape cancels the edit and the next one
+  closes the drawer; never handle Escape on the input.
 - **A drawer returns focus to whatever opened it**, captured on the FIRST render via a lazy
   `useState` initializer. Reading `document.activeElement` in an effect is too late: effects
   run child-first, so a field marked `autoFocus` has already taken focus and gets recorded
@@ -198,6 +208,50 @@ and this paragraph has itself been stale once, which is the point.
   document go through `ProjectDocProvider`, which owns the mtime and serialises
   requests. Never give a second component its own baseline for a file another one
   already writes.
+- **A drawer owns one write chain for its file.** `CardDetail` sends body and frontmatter
+  writes through `lib/writeChain.ts`, so the mtime each request carries is the one the
+  previous write returned, a failure rejects everything queued behind it, and a 409 locks
+  the chain until the card is reloaded. Greying controls is not serialisation: two events in
+  one tick shared a baseline read from the render closure. This is the card-file half of the
+  rule above, as a pure module a unit test can hold to its contract.
+- **A checklist edit changes the lines it names and no other byte.** `lib/checklist.ts`
+  adds, renames, removes and reorders criteria on `split("\n")` positions: a rename rewrites
+  one line's text, a removal splices one element, a move swaps two lines' content and leaves
+  each position's `\r`. A missing heading is created at the end of the body, because that is
+  the only insertion that leaves every existing byte where it was. The tests assert line
+  counts and every untouched line, not just the new text.
+- **An AI update never removes or unticks a criterion the user wrote.** `lib/ai/merge.ts`
+  keeps every existing task line — bytes, tick, position — and can only append what the
+  model added; a criterion the model omitted or reworded is kept and labelled in the review.
+  The old apply rewrote the list wholesale and lost every `[x]` the user had ticked. Removal
+  is a click in the drawer, by the user. A replacement will arrive only as a per-criterion
+  proposal the user accepts row by row (the designed "Sharpen"), never from a bare `update`.
+- **An apply carries the baseline the review was computed against.** The review is a diff
+  against a card read at review time; the write is against the card on disk at apply time.
+  `selection.baselines[cardId]` makes those the same file or a 409, and `applyProposal`
+  refuses an update with no baseline. The snapshot is the safety net, not the precondition.
+- **A pending proposal is found by job and card, never by "newest ready".** `pendingRunFor`
+  in `lib/runs.ts` is the only lookup; `run.json` carries `cardId` for enhance runs so a card
+  can find its own. Two job-agnostic `find`s used to exist, and a finished card enhancement
+  surfaced on the brief page as a synthesis. The review seed in `EnhanceCard` is state set
+  once from the first read — never derived from a refetched list, because the refetch after
+  an apply finds nothing pending and would unmount the review in the tick it says "Applied".
+- **A run that is still working is found by `activeRunFor`, never by `pendingRunFor`.** They
+  answer different questions and must stay apart: `pendingRunFor` is `ready`-only, and letting
+  a `running` record through it would open a review against a `proposal.json` that has not
+  been written — the same shape as the job-agnostic `find`s above. The brief page asks both.
+  This exists because the run deliberately outlives the response that started it: switching
+  tabs aborted the stream, synthesis carried on, and the page came back showing **idle buttons
+  over a locked project**, so the next click failed on the lock for reasons nobody could see.
+  An adopted run shows elapsed time rather than steps — steps are streamed, never stored, and
+  the stream belongs to the tab that opened it — because "is it working or hung" is the
+  question the step list exists to answer and a bare spinner does not.
+- **Account status is asked of the CLI, never read off its files.** `lib/ai/account.ts` runs
+  `claude auth status --json` and whitelists the fields it forwards. `~/.claude.json` is a
+  cache the CLI does not always rewrite — on this machine it named a different account than
+  the CLI did — and reading it would be a fifth `fs` exception, into the user's home. Nothing
+  is spawned under the fixture engine, and the answer is cached for a minute so no page pays
+  a process per render.
 - **Mutating routes go through `route(handler, { mutating: true })`**, which applies
   the loopback + Sec-Fetch-Site + Origin guards. No auth does not mean no boundary:
   any page in the browser can reach 127.0.0.1.

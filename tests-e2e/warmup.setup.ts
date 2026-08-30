@@ -18,9 +18,14 @@ const ROUTES = [
   "/p/alpha-portal/roadmap",
   "/p/alpha-portal/log",
   "/p/alpha-portal/questions",
+  "/p/alpha-portal/settings",
   "/p/eta-board/board",
+  "/p/rho-card-page/cards/1",
+  "/settings",
   "/api/vault/alpha-portal",
   "/api/cards?slug=eta-board&id=1",
+  "/api/ai/runs?slug=eta-board&cardId=1",
+  "/api/ai/account",
 ];
 
 setup("warm every route", async ({ request }) => {

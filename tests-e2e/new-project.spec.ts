@@ -1,4 +1,5 @@
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 
@@ -11,7 +12,17 @@ import { expect, test } from "@playwright/test";
 test.describe.configure({ mode: "serial" });
 
 const VAULT = path.resolve(import.meta.dirname, "fixture-vault");
-const CREATED = ["lambda-fresh", "mu-typo-check", "duplicate-name"];
+const CREATED = ["lambda-fresh", "mu-typo-check", "duplicate-name", "omega-source"];
+
+/*
+ * The repository fixture lives in the OS temp dir, never inside the checkout.
+ *
+ * Same reason as `repo.spec.ts`: a folder under `tests-e2e/` sits inside the app root, and
+ * a repository outside that root is the case this is about. It is also what keeps
+ * `validateRepoPath` from refusing it for being nested with the vault.
+ */
+let scratch: string;
+let repoDir: string;
 
 async function cleanup(): Promise<void> {
   for (const slug of CREATED) {
@@ -19,12 +30,20 @@ async function cleanup(): Promise<void> {
   }
 }
 
+test.beforeAll(async () => {
+  scratch = await fsp.mkdtemp(path.join(os.tmpdir(), "gw-e2e-newproj-"));
+  repoDir = path.join(scratch, "omega-source");
+  await fsp.mkdir(path.join(repoDir, "src"), { recursive: true });
+  await fsp.writeFile(path.join(repoDir, "src", "main.ts"), "export const x = 1;\n", "utf8");
+});
+
 test.beforeEach(async () => {
   await cleanup();
 });
 
 test.afterAll(async () => {
   await cleanup();
+  await fsp.rm(scratch, { recursive: true, force: true });
 });
 
 test("creating a project writes a vault folder and opens its brief", async ({ page }) => {
@@ -112,6 +131,106 @@ test("cancel closes the form without creating anything", async ({ page }) => {
 
   await expect(page.getByTestId("new-project-form")).toHaveCount(0);
   await expect(fsp.access(path.join(VAULT, "lambda-fresh"))).rejects.toThrow();
+});
+
+
+test.describe("starting from a repository", () => {
+  test("derives the name and slug from the folder before submitting", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("new-project").click();
+    await page.getByLabel("Start from").selectOption("repo");
+
+    // The name field is gone: that is the point of the mode, not a side effect of it.
+    await expect(page.getByLabel("Project name")).toHaveCount(0);
+    await expect(page.getByLabel("Kind of project")).toHaveCount(0);
+
+    await page.getByTestId("new-project-repo").fill(repoDir);
+
+    const preview = page.getByTestId("slug-preview");
+    await expect(preview).toContainText("Omega Source");
+    await expect(preview).toContainText("vault/omega-source");
+  });
+
+  test("creates the project with the repository already connected", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("new-project").click();
+    await page.getByLabel("Start from").selectOption("repo");
+    await page.getByTestId("new-project-repo").fill(repoDir);
+    await page.getByRole("button", { name: "Create project" }).click();
+
+    await expect(page).toHaveURL(/\/p\/omega-source\/brief$/, { timeout: 20_000 });
+    await expect(page.getByRole("heading", { level: 1, name: "Omega Source" })).toBeVisible();
+
+    /*
+     * Connected in the same write that created the project. A create-then-connect would
+     * leave a window where this file has no `repo:` line, and a failure in the second half
+     * would strand a project that exists but is not attached to the thing it was made for.
+     */
+    const raw = await fsp.readFile(path.join(VAULT, "omega-source", "project.md"), "utf8");
+    expect(raw).toContain("name: Omega Source");
+    expect(raw).toContain("slug: omega-source");
+    expect(raw).toMatch(/^repo: /m);
+    // Nobody was asked for a kind of project, so the default is what lands.
+    expect(raw).toContain("archetype: internal-tool");
+  });
+
+  test("arrives with the repository already attached", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("new-project").click();
+    await page.getByLabel("Start from").selectOption("repo");
+    await page.getByTestId("new-project-repo").fill(repoDir);
+    await page.getByRole("button", { name: "Create project" }).click();
+    await expect(page).toHaveURL(/omega-source/, { timeout: 20_000 });
+
+    /*
+     * The connection is shown on Settings, not the Brief - the repository panel moved there
+     * with export and delete, because none of the three is part of the plan. Creation still
+     * lands on the Brief, which is where a new project's only useful next step is.
+     *
+     * The whole point of the shortcut is asserted here: arrive attached, not with a form to
+     * fill in.
+     */
+    await page.goto(`/p/omega-source/settings`);
+    await expect(page.getByTestId("repo-panel")).toContainText("omega-source");
+  });
+
+  test("accepts a path pasted with the quotes Explorer adds", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("new-project").click();
+    await page.getByLabel("Start from").selectOption("repo");
+
+    // "Copy as path" is the one gesture that yields an absolute path without typing it.
+    await page.getByTestId("new-project-repo").fill(`"${repoDir}"`);
+    await expect(page.getByTestId("slug-preview")).toContainText("vault/omega-source");
+
+    await page.getByRole("button", { name: "Create project" }).click();
+    await expect(page).toHaveURL(/omega-source/, { timeout: 20_000 });
+  });
+
+  test("reports a path that is not there, and creates nothing", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("new-project").click();
+    await page.getByLabel("Start from").selectOption("repo");
+    await page.getByTestId("new-project-repo").fill(path.join(scratch, "no-such-folder"));
+    await page.getByRole("button", { name: "Create project" }).click();
+
+    await expect(page.getByTestId("new-project-error")).toContainText(/Nothing exists/i, {
+      timeout: 20_000,
+    });
+
+    // A typo must not leave a folder behind. The repo is validated before anything is written.
+    await expect(fsp.access(path.join(VAULT, "no-such-folder"))).rejects.toThrow();
+  });
+
+  test("keeps Create disabled until a path is typed", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("new-project").click();
+    await page.getByLabel("Start from").selectOption("repo");
+
+    await expect(page.getByRole("button", { name: "Create project" })).toBeDisabled();
+    await page.getByTestId("new-project-repo").fill(repoDir);
+    await expect(page.getByRole("button", { name: "Create project" })).toBeEnabled();
+  });
 });
 
 test.describe("create API", () => {

@@ -59,9 +59,13 @@ Defined in `app/globals.css`, with a full dark set under
 --accent: #1f6e5b;        /* state only — selection, focus, progress, location */
 --accent-ink: #175447;    /* text on soft accent */
 --accent-soft: #e2efea;
+--on-accent: #ffffff;     /* text on the solid accent fill; dark text on the mint in dark mode */
 
 --s-idea: #b0761b;   --s-active: #2a6bc4;  --s-blocked: #c0392f;
 --s-done: #2f7d46;   --s-paused: #7b8280;
+
+--danger-fill: #c0392f;   /* the solid destructive fill; #c8483c in dark */
+--on-danger: #ffffff;     /* white in both themes, unlike --on-accent */
 
 --radius-sm: 8px;  --radius: 12px;  --radius-lg: 18px;
 --shadow-sm / --shadow / --shadow-lift
@@ -142,9 +146,30 @@ and looking generic is the specific complaint this rebuild answers.
   words, and a progress bar with a sentence under it.
 - **Chip** — rounded pill with a 9px status dot. `text-transform: capitalize`, so a stored
   lowercase value displays capitalised without the DOM text changing.
+- **Badge** — `components/ui/Badge.tsx`. The count pill: `--accent-soft` fill, `--accent-ink`
+  digits at the 12px floor, 22px minimum so one digit stays round. One class (`.badge`) for
+  the rail, the tab bar and the dashboard, because the rail once showed "2?" in plain text
+  while the tab showed a badge for the same number. The accessible name is required and says
+  what the number means ("2 open questions"); the digit alone is never the announced text.
 - **Column / Phase** — its own rounded `--surface-2` panel with a counter pill.
 - **Button** — pill, `--tap` min-height. `.button` is the outline default; `.button-primary`
-  is the solid accent for the main action in a flow.
+  is the solid accent for the main action in a flow, with `--on-accent` text, and it goes
+  inert (`--surface-2`, `--ink-faint`) when disabled rather than keeping the fill and losing
+  its words. `.is-danger` alone recolours the text to `--s-blocked` — that is the *trigger*
+  that opens a destructive question. `.button-primary.is-danger` fills with `--danger-fill`
+  and `--on-danger`, and is the button that *commits* one. The two weights are deliberate:
+  if the trigger were also filled, the row would carry two equally loud reds and neither
+  would read as the point of no return. `--danger-fill` exists because `--s-blocked` is
+  tuned for chips and borders and lightens to `#e2766a` in dark mode, where white text falls
+  to 2.99:1; the fill values carry white at 5.43:1 light and 4.72:1 dark.
+- **Icon button** — `components/ui/IconButton.tsx`. A 36px box; the glyph inside is sized to
+  16px **by the primitive**, so an inline `<svg>` with only a `viewBox` cannot collapse to
+  nothing. The accessible name is a required prop.
+- **Select** — `components/ui/Select.tsx`. A native `<select>` with `appearance: none` and an
+  inline SVG chevron as a sibling inside `.select-wrap`, which is the element that takes width.
+  The option list is painted by the OS and cannot be styled; `color-scheme` on the theme blocks
+  keeps it the right colour. The accessible name is a required prop, because the e2e suite
+  finds every select by it.
 - **Progress bar** — `.bar` with a `--s-done` fill, always paired with words.
 
 ## Rules
@@ -155,7 +180,9 @@ and looking generic is the specific complaint this rebuild answers.
   oversight. Inline text links are exempt; they are sized by their text and take their hit
   area from the row around them.
 - **No hard-coded colours outside the token block.** One-off literals are how a palette
-  erodes. A `--custom-property: #hex` declaration is exactly where hex belongs.
+  erodes. A `--custom-property: #hex` declaration is exactly where hex belongs. The linter
+  once exempted `#fff` for text on the accent fill; that is `--on-accent` now and the
+  exemption is gone, so there is no allowed literal left.
 - **No tokens that were never declared.** `var(--typo)` resolves to nothing and inherits,
   which looks fine and is not. Checked against `globals.css`, the file under lint, and the
   font variables `next/font` injects.
@@ -170,6 +197,27 @@ and looking generic is the specific complaint this rebuild answers.
   editor does not: `.cm-content` carried `max-width: 74ch` and left almost 40% of the bordered
   frame empty on a wide window, which reads as a broken text area rather than as typography —
   the box you click has to be the box you type in. Asserted in `brief-editor.spec.ts`.
+  The frame also has a **height, not a growth rule**: it opens at 60vh, scrolls inside, and
+  carries a `resize: vertical` grip so the writer chooses. A frame that grew with the text
+  pushed the repo panel, the AI actions and export off the bottom of a long brief.
+  And the editor **renders in the sans**: CodeMirror's base theme puts `font-family:
+  monospace` on `.cm-scroller` and injects it at runtime, after this stylesheet, so the rule
+  on `.cm-editor` lost and the brief rendered in Courier New for several revisions. The
+  override is three classes deep for that reason, inline code keeps the mono, and
+  `design-system.spec.ts` now reads the editor's computed face.
+- **The page owns the gap, not the panel.** `.page-blocks` stacks a view's top-level blocks
+  at `--space-6` (32px) and the blocks carry no margins; `.tabs` ends on the same token, so
+  every view's first block lands on the grid. A block that opens with a hairline rule
+  (`.ai-panel`, `.backlinks`) keeps `--space-5` between the rule and its content — an
+  interior offset, not a gap. Title→tabs is a header unit at `--space-3`. One-sided margins
+  on blocks are how the editor once sat flush against the repo panel, and then — the same
+  mistake one level up — how `.metabar { margin-bottom }` and `.backlinks { margin-top }`
+  added themselves to the container's gap and put 58px above the brief while everything else
+  sat at 32. Flex-item margins do not collapse; the container is the only place a gap lives.
+- **Focus is one ring.** The global `:focus-visible` ring sits 2px off the element. A field
+  that already has a border (`.input`, `.select`) draws the ring over that border instead —
+  `outline-offset: -1px`, border turned accent — because border + gap + ring read as two
+  borders. The brief editor does the same with `.editor-frame:focus-within`.
 - **No emoji in UI chrome.** Use a status chip or an inline SVG.
 - **Never render vault prose as HTML.** Use `components/ui/Prose.tsx`; the text can come from
   an accepted AI proposal.

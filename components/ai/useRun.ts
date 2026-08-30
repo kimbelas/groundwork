@@ -36,7 +36,10 @@ export function useRun(slug: string) {
   }, []);
 
   const start = useCallback(
-    async (job: "synthesize" | "critique" | "enhance-card", cardId?: number) => {
+    async (
+      job: "synthesize" | "critique" | "enhance-card" | "suggest-answers",
+      cardId?: number,
+    ) => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;

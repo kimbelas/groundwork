@@ -26,6 +26,60 @@ afterEach(async () => {
   await fsp.rm(dir, { recursive: true, force: true });
 });
 
+describe("a run remembers its card, and pending lookups are scoped", () => {
+  const base = {
+    slug: "x",
+    status: "ready" as const,
+    startedAt: "2026-08-25T10:00:00.000Z",
+    finishedAt: "2026-08-25T10:01:00.000Z",
+  };
+
+  it("keeps cardId across updateRun, which re-parses the record", async () => {
+    await runs.createRun({
+      ...base,
+      runId: "run_20260825_1000",
+      job: "enhance-card",
+      status: "running",
+      cardId: 7,
+    });
+    await runs.updateRun("run_20260825_1000", { status: "ready" });
+    expect((await runs.readRun("run_20260825_1000"))?.cardId).toBe(7);
+  });
+
+  it("does not offer a card's enhancement as a project-level proposal", async () => {
+    await runs.createRun({ ...base, runId: "run_20260825_1000", job: "enhance-card", cardId: 7 });
+    expect(await runs.pendingRunFor("x", { job: ["synthesize", "critique"] })).toBeNull();
+    expect(await runs.pendingRunFor("x", { job: "enhance-card", cardId: 7 })).toMatchObject({
+      runId: "run_20260825_1000",
+    });
+    expect(await runs.pendingRunFor("x", { job: "enhance-card", cardId: 8 })).toBeNull();
+  });
+
+  it("offers the newest unapplied project-level run and skips applied ones", async () => {
+    await runs.createRun({ ...base, runId: "run_20260825_1000", job: "synthesize" });
+    await runs.createRun({
+      ...base,
+      runId: "run_20260825_1001",
+      job: "critique",
+      appliedAt: "2026-08-25T10:05:00.000Z",
+    });
+    expect(await runs.pendingRunFor("x", { job: ["synthesize", "critique"] })).toMatchObject({
+      runId: "run_20260825_1000",
+    });
+  });
+
+  it("lists one card's runs, newest first, and nothing else", async () => {
+    await runs.createRun({ ...base, runId: "run_20260825_1000", job: "enhance-card", cardId: 7 });
+    await runs.createRun({ ...base, runId: "run_20260825_1001", job: "enhance-card", cardId: 8 });
+    await runs.createRun({ ...base, runId: "run_20260825_1002", job: "enhance-card", cardId: 7 });
+    await runs.createRun({ ...base, runId: "run_20260825_1003", job: "synthesize" });
+    expect((await runs.listCardRuns("x", 7)).map((r) => r.runId)).toEqual([
+      "run_20260825_1002",
+      "run_20260825_1000",
+    ]);
+  });
+});
+
 describe("assertRunId", () => {
   it("accepts the generated shape", () => {
     expect(runs.assertRunId("run_20260819_0614")).toBe("run_20260819_0614");

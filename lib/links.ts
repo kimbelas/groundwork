@@ -145,6 +145,11 @@ export function cardNode(slug: string, cardId: number): NodeId {
   return `${slug}/card-${cardId}`;
 }
 
+/** The one spelling of a card's URL: backlinks, search, the tile, the drawer and the page. */
+export function cardHref(slug: string, cardId: number): string {
+  return `/p/${slug}/cards/${cardId}`;
+}
+
 export function nodeOf(target: LinkTarget): NodeId | null {
   if (target.kind === "project") return projectNode(target.slug);
   if (target.kind === "card") return cardNode(target.slug, target.cardId);

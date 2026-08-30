@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { parseChecklist } from "@/lib/checklist";
 import { readData, split } from "@/lib/frontmatter";
 
 /**
@@ -172,9 +173,11 @@ describe("createCard", () => {
     expect(project.cards.filter((c) => c.column === "Intake").map((c) => c.id)).toEqual([1, 2, 4]);
   });
 
-  it("seeds an acceptance criteria section", async () => {
+  it("seeds an acceptance criteria heading and no blank criterion", async () => {
     const card = await vault.createCard("board-test", { title: "New", column: "Intake" });
     expect(card.body).toContain("## Acceptance criteria");
+    // A seeded `- [ ] ` counted as a criterion: "0 of 1 done" on a card nobody had written.
+    expect(parseChecklist(card.body)).toEqual([]);
   });
 
   it("rejects an undeclared column", async () => {

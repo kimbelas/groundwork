@@ -30,7 +30,13 @@ const style = HighlightStyle.define([
   { tag: t.strikethrough, textDecoration: "line-through", color: "var(--ink-soft)" },
 
   { tag: [t.link, t.url], color: "var(--accent)" },
-  { tag: [t.monospace, t.literal], color: "var(--ink-soft)" },
+  // Inline code and fenced blocks are the one thing in the brief set in the mono face; the
+  // prose around them is sans, now that the scroller no longer falls back to Courier.
+  {
+    tag: [t.monospace, t.literal],
+    color: "var(--ink-soft)",
+    fontFamily: "var(--font-jetbrains-mono), ui-monospace, monospace",
+  },
   { tag: t.quote, color: "var(--ink-soft)", fontStyle: "italic" },
 
   // Structural punctuation recedes rather than competing with the prose.

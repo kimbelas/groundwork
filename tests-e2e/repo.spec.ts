@@ -74,7 +74,7 @@ async function frontmatter(): Promise<string> {
 }
 
 test("offers a connect field when no repo is linked", async ({ page }) => {
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   const panel = page.getByTestId("repo-panel");
   await expect(panel).toBeVisible();
@@ -83,7 +83,7 @@ test("offers a connect field when no repo is linked", async ({ page }) => {
 });
 
 test("connects a repository and shows it", async ({ page }) => {
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await page.getByTestId("repo-path").fill(repoDir);
   await page.getByRole("button", { name: "Connect" }).click();
@@ -97,7 +97,7 @@ test("connects a repository and shows it", async ({ page }) => {
 
 test("writes the repo without disturbing the brief body", async ({ page }) => {
   // A frontmatter edit leaves the body bytes alone. Same contract as every other write.
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await page.getByTestId("repo-path").fill(repoDir);
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByTestId("repo-connected")).toBeVisible();
@@ -106,7 +106,7 @@ test("writes the repo without disturbing the brief body", async ({ page }) => {
 });
 
 test("survives a reload, because the connection lives in the file", async ({ page }) => {
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await page.getByTestId("repo-path").fill(repoDir);
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByTestId("repo-connected")).toBeVisible();
@@ -116,7 +116,7 @@ test("survives a reload, because the connection lives in the file", async ({ pag
 });
 
 test("disconnects", async ({ page }) => {
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await page.getByTestId("repo-path").fill(repoDir);
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByTestId("repo-connected")).toBeVisible();
@@ -127,7 +127,7 @@ test("disconnects", async ({ page }) => {
 });
 
 test("refuses a relative path, with a reason", async ({ page }) => {
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await page.getByTestId("repo-path").fill("../some-repo");
   await page.getByRole("button", { name: "Connect" }).click();
@@ -139,7 +139,7 @@ test("refuses a relative path, with a reason", async ({ page }) => {
 });
 
 test("refuses a directory that does not exist", async ({ page }) => {
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await page.getByTestId("repo-path").fill(path.join(scratch, "not-here"));
   await page.getByRole("button", { name: "Connect" }).click();
@@ -154,7 +154,7 @@ test("refuses the vault itself", async ({ page }) => {
    * repo-grounded planning quote its own notes as source, which is exactly the confusion
    * the grounding check exists to prevent.
    */
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await page.getByTestId("repo-path").fill(VAULT);
   await page.getByRole("button", { name: "Connect" }).click();
@@ -169,7 +169,7 @@ test("reports a repo that has gone away, instead of hiding it", async ({ page })
   const doomed = path.join(scratch, "doomed-repo");
   await fsp.mkdir(doomed, { recursive: true });
 
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await page.getByTestId("repo-path").fill(doomed);
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByTestId("repo-connected")).toBeVisible();
@@ -184,6 +184,6 @@ test("reports a repo that has gone away, instead of hiding it", async ({ page })
 
 test("the connect field carries an accessible name", async ({ page }) => {
   // A placeholder is not a label. It disappears the moment anyone types.
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await expect(page.getByLabel("Repository path")).toBeVisible();
 });

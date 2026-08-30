@@ -37,6 +37,7 @@ export function Drawer({
   onClose,
   children,
   footer,
+  headerActions,
   className,
   testId,
 }: {
@@ -45,6 +46,8 @@ export function Drawer({
   children: ReactNode;
   /** Actions pinned to the bottom, so they stay reachable in a long drawer. */
   footer?: ReactNode;
+  /** Small controls beside the close button — an "open as page" link, for instance. */
+  headerActions?: ReactNode;
   className?: string;
   testId?: string;
 }) {
@@ -134,18 +137,21 @@ export function Drawer({
         <h2 id={headingId} className="drawer-title">
           {title}
         </h2>
-        <IconButton label="Close" onClick={onClose} data-testid="drawer-close">
-          {/* IconButton already wraps this in an aria-hidden glyph span. */}
-          <svg viewBox="0 0 20 20">
-            <path
-              d="M5 5l10 10M15 5L5 15"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-            />
-          </svg>
-        </IconButton>
+        <div className="drawer-actions">
+          {headerActions}
+          <IconButton label="Close" onClick={onClose} data-testid="drawer-close">
+            {/* IconButton already wraps this in an aria-hidden glyph span. */}
+            <svg viewBox="0 0 20 20">
+              <path
+                d="M5 5l10 10M15 5L5 15"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+              />
+            </svg>
+          </IconButton>
+        </div>
       </div>
 
       <div className="drawer-body">{children}</div>

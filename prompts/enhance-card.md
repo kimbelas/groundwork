@@ -20,6 +20,14 @@ write one JSON document to the output path, and change nothing else.
 **Expand, do not replace.** The user wrote this card for a reason. Keep its intent and
 its title unless the title is actively wrong; add the specifics that were missing.
 
+**Existing acceptance criteria are the user's.** Read the checklist under
+`## Acceptance criteria` in the card file. Return every criterion that is already there,
+verbatim and in its current order, at the start of `acceptance`, then add yours after them.
+The app keeps the user's criteria — and their ticks — whether or not you return them, so a
+reworded criterion does not replace the original: it arrives as a duplicate beside it. If a
+criterion cannot fail, say so in a question rather than rewriting it. Do not drop one, merge
+two, or reorder them.
+
 **Reference the brief, not the genre.** A good expansion contains details that could only
 come from this project. If what you wrote would fit any project of this type, it is
 filler and you should write less.
@@ -68,7 +76,7 @@ Exactly one `update` card, carrying the id you were given.
       "priority": "P1",
       "size": "M",
       "confidence": 0.6,
-      "body": "The expanded description.",
+      "body": "The expanded description. Prose only — the criteria go in `acceptance`, never here.",
       "acceptance": ["A criterion that could fail"],
       "groundedIn": "verbatim quote from the brief, or null",
       "groundedInCode": {
@@ -90,4 +98,5 @@ one — this job is about a single card.
 
 - Do not create, edit or delete anything under `vault/`.
 - Do not propose other cards. One card in, one card out.
+- Do not remove, reword or reorder an existing acceptance criterion. Add; never subtract.
 - Do not invent a technology, a deadline, or a stakeholder the brief does not mention.

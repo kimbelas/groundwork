@@ -121,7 +121,8 @@ guessed better.
 
 **Also in the box**
 
-- **Enhance a card** with AI that has read the whole brief and its sibling cards first, so the result fits the plan rather than being generic filler.
+- **Enhance a card** with AI that has read the whole brief and its sibling cards first, so the result fits the plan rather than being generic filler. Your hand-written criteria always survive an apply; a finished enhancement is offered again when you reopen the card, and every run is listed with its outcome.
+- **Every card has its own page** — description, editable criteria, backlinks, enhancement history. Ctrl-click a tile or use the link in the drawer header to open it in a new tab.
 - **Critique** a project for gaps; new risks and questions arrive through the same review flow.
 - **Connect a repository** and planning is grounded in the code that exists — with citations verified against the exact bytes the model was shown. [Details below.](#planning-against-your-real-code)
 - **Export** a `CLAUDE.md` + `TASKS.md` into your real project folder, previewed first, so Claude Code starts phase 1 with the whole plan.
@@ -138,7 +139,7 @@ guessed better.
 | | |
 |---|---|
 | **Node.js** 20+ and **pnpm** | `npm i -g pnpm` |
-| **Claude Code CLI**, installed and logged in | `npm i -g @anthropic-ai/claude-code`, then run `claude` once to sign in. Groundwork spawns it for AI work — **no API key, no per-token bill**, it rides your existing subscription. |
+| **Claude Code CLI**, installed and logged in | `npm i -g @anthropic-ai/claude-code`, then `claude auth login`. Groundwork spawns it for AI work — **no API key, no per-token bill**, it rides your existing subscription. **Settings** (bottom of the rail) shows which account the CLI is signed into and how to connect if it is not. |
 | **git** on `PATH` (optional) | Enables auto-commit of the vault after every accepted proposal. Everything else works without it. |
 | **Windows 11** | Built and tested here. macOS/Linux spawn `claude` from `PATH` and should work, but are untested. |
 

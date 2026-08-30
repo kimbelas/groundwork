@@ -9,6 +9,7 @@ import {
   priorityLabel,
   progressLabel,
   progressPercent,
+  runAskedLabel,
   sentenceCase,
   sizeLabel,
   stageLabel,
@@ -165,5 +166,35 @@ describe("confidenceChoices", () => {
     expect(confidenceChoices(5)).toContain(1);
     expect(confidenceChoices(5).every((c) => c <= 1)).toBe(true);
     expect(confidenceChoices(-2).every((c) => c >= 0)).toBe(true);
+  });
+});
+
+describe("runAskedLabel", () => {
+  it("reads the date out of a run id", () => {
+    expect(runAskedLabel("run_20260829_1707")).toBe("Asked 29 Aug 2026");
+  });
+
+  it("drops the leading zero on the day", () => {
+    expect(runAskedLabel("run_20260809_0900")).toBe("Asked 9 Aug 2026");
+  });
+
+  it("accepts the collision suffix a same-minute run carries", () => {
+    // `makeRunId` appends `_1`, `_2`… when two runs start in the same minute.
+    expect(runAskedLabel("run_20260829_1707_2")).toBe("Asked 29 Aug 2026");
+  });
+
+  it("returns null for anything that is not a run id, so a caller can fall back", () => {
+    /*
+     * Formatted from the id's own digits rather than through `Intl` or a `Date`: a locale or
+     * a timezone would make the server and the client disagree, and a hydration mismatch is a
+     * console error the e2e suite fails on.
+     */
+    expect(runAskedLabel("")).toBeNull();
+    expect(runAskedLabel("not-a-run")).toBeNull();
+    expect(runAskedLabel("run_2026082_1707")).toBeNull();
+  });
+
+  it("returns null for an impossible month rather than an empty word", () => {
+    expect(runAskedLabel("run_20261329_1707")).toBeNull();
   });
 });

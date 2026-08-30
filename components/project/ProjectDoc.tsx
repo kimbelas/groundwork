@@ -25,6 +25,8 @@ interface ProjectDocValue {
   conflicted: boolean;
   writeBrief: (body: string) => Promise<void>;
   writeMeta: (patch: MetaPatch) => Promise<void>;
+  /** Move the whole project to the vault's trash. Resolves with where it went. */
+  trash: () => Promise<string>;
 }
 
 const Ctx = createContext<ProjectDocValue | null>(null);
@@ -56,10 +58,24 @@ export function ProjectDocProvider({
   const chainRef = useRef<Promise<unknown>>(Promise.resolve());
   const conflictedRef = useRef(false);
   const [conflicted, setConflicted] = useState(false);
+  /*
+   * Set once the project has been trashed.
+   *
+   * The delete navigates away, but the brief editor autosaves on a debounce and that timer
+   * can still be in flight - a keystroke two seconds before the click. Without this it
+   * lands on a deleted project and reports a bare 404 over the top of a successful delete,
+   * which reads as "the delete failed" to everyone who sees it.
+   */
+  const goneRef = useRef(false);
 
   const send = useCallback(
     (payload: Record<string, unknown>): Promise<void> => {
       const task = chainRef.current.then(async () => {
+        if (goneRef.current) {
+          throw Object.assign(new Error("This project has been deleted."), {
+            code: "not_found",
+          });
+        }
         if (conflictedRef.current) {
           throw Object.assign(new Error("This file changed on disk."), { code: "conflict" });
         }
@@ -94,14 +110,59 @@ export function ProjectDocProvider({
     [slug],
   );
 
+  /**
+   * Delete, through the same baseline and the same chain as every other write.
+   *
+   * Queuing it behind whatever the brief editor still has in flight is what makes the mtime
+   * it carries the one the previous write returned. Issuing it beside the chain would race
+   * a debounced autosave and 409 on the user's own keystroke - the precondition firing on
+   * the one writer it was never meant to guard against.
+   */
+  const trash = useCallback((): Promise<string> => {
+    const task = chainRef.current.then(async () => {
+      if (goneRef.current) {
+        throw Object.assign(new Error("This project has been deleted."), { code: "not_found" });
+      }
+      if (conflictedRef.current) {
+        throw Object.assign(new Error("This file changed on disk."), { code: "conflict" });
+      }
+
+      const res = await fetch(`/api/vault/${encodeURIComponent(slug)}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expectedMtimeMs: mtimeRef.current }),
+      });
+
+      const data: unknown = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const detail = (data ?? {}) as { error?: string; code?: string };
+        if (detail.code === "conflict") {
+          conflictedRef.current = true;
+          setConflicted(true);
+        }
+        throw Object.assign(new Error(detail.error ?? `Delete failed (${res.status})`), {
+          code: detail.code,
+        });
+      }
+
+      goneRef.current = true;
+      return (data as { trashedTo?: string } | null)?.trashedTo ?? ".trash";
+    });
+
+    chainRef.current = task.catch(() => undefined);
+    return task;
+  }, [slug]);
+
   const value = useMemo<ProjectDocValue>(
     () => ({
       slug,
       conflicted,
       writeBrief: (body) => send({ kind: "brief", body }),
       writeMeta: (patch) => send({ kind: "meta", patch }),
+      trash,
     }),
-    [slug, conflicted, send],
+    [slug, conflicted, send, trash],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

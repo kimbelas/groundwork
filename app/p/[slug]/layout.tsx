@@ -34,9 +34,7 @@ export default async function ProjectLayout({
 
   return (
     <>
-      <h1 className="display-lg" style={{ margin: "0 0 10px" }}>
-        {name}
-      </h1>
+      <h1 className="display-lg page-title">{name}</h1>
       <ProjectTabs slug={slug} openQuestions={openQuestions} />
       {children}
     </>

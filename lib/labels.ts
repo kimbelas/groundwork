@@ -152,3 +152,65 @@ export function archetypeLabel(archetype: Archetype): string {
 export function likelihoodLabel(likelihood: Likelihood): string {
   return LIKELIHOOD[likelihood];
 }
+
+/**
+ * The spoken form of an open-questions count, for the badge that shows only the number.
+ * "2?" told nobody anything; a badge reading "2" with this as its name tells everyone.
+ */
+export function openQuestionsLabel(count: number): string {
+  return `${count} open ${count === 1 ? "question" : "questions"}`;
+}
+
+/** The CLI's `subscriptionType` as a plan name: "team" → "Team plan". */
+export function planLabel(subscriptionType: string | null): string | null {
+  if (!subscriptionType) return null;
+  return `${sentenceCase(subscriptionType)} plan`;
+}
+
+/** The CLI's `authMethod` in words a person recognises. */
+export function authMethodLabel(authMethod: string | null): string {
+  switch (authMethod) {
+    case "claude.ai":
+      return "Signed in with a Claude subscription";
+    case "console":
+      return "Signed in through the Anthropic Console (API billing)";
+    case null:
+      return "Signed in";
+    default:
+      return `Signed in via ${authMethod}`;
+  }
+}
+
+const MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+] as const;
+
+/**
+ * A run id as a date a person can read: `run_20260829_1707` becomes `Asked 29 Aug 2026`.
+ *
+ * "Words on screen, codes in files" applies to the run id too. It was rendered raw next to
+ * every question the AI asked - a nineteen-character identifier, in mono, sitting where a
+ * reader is deciding what to type. It is not something you can act on, and it competed with
+ * the thing that is.
+ *
+ * The id still matters for tracing a question back to its run, so callers keep it as the
+ * element's `title` rather than dropping it.
+ *
+ * Formatted from the id's own digits, not through `Intl` or a `Date`: the value is already a
+ * fixed string, and running it through a locale or a timezone would make the server and the
+ * client disagree about it - a hydration mismatch, which `tests-e2e/console.spec.ts` fails
+ * on. `null` for anything that is not a run id, so a caller can fall back rather than print
+ * a broken date.
+ */
+export function runAskedLabel(runId: string): string | null {
+  const m = /^run_(\d{4})(\d{2})(\d{2})_\d{4}/.exec(runId);
+  if (!m) return null;
+
+  const [, year, month, day] = m;
+  const monthName = MONTHS[Number(month) - 1];
+  if (!monthName) return null;
+
+  // No leading zero on the day: "Asked 9 Aug 2026", not "Asked 09 Aug 2026".
+  return `Asked ${Number(day)} ${monthName} ${year}`;
+}

@@ -49,6 +49,38 @@ Eight phases. Each one ends in something you can open in a browser and use. No p
 > Tests assert `<script>` and `<img onerror=>` appear as literal text and create no
 > elements.
 >
+> **An enhancement persists, a card has a page, and Settings says who is signed in.** Closing
+> the card drawer used to lose a finished enhancement — nothing recorded which card a run was
+> for, and the two "pending proposal" lookups were job-agnostic, so a card's enhancement even
+> surfaced on the brief page. Now `run.json` carries `cardId`, `pendingRunFor` is the one
+> scoped lookup, `EnhanceCard` is seeded once from the card's runs (and polls a run still in
+> progress), and `EnhanceHistory` lists every run with its outcome, showing the proposal rather
+> than a diff against the current card. The drawer's body became `CardEditor`, so
+> `/p/<slug>/cards/<id>` renders the same editor with the description and backlinks the drawer
+> never showed; the drawer links to it and a Ctrl-click on a tile opens it. `/settings` asks
+> the CLI (`claude auth status --json`) which account is connected and gives the commands for
+> every other state; the CLI's own config file was rejected as a source because on the build
+> machine it named a different account than the CLI did. Description editing on the page and
+> the dashboard's next-action linking to a card are deferred with their reasons in 01.
+>
+> **Criteria are the user's, and the AI can only add to them.** A card created on the board
+> had no way to write an acceptance criterion in the app, and an accepted Enhance replaced the
+> whole card body — deleting any criterion the model did not echo back, clearing every tick,
+> dropping prose after the list — while the review showed no before/after. Now the drawer
+> adds, renames, removes and reorders criteria as one-line byte-preserving writes through one
+> write chain per card (`lib/writeChain.ts`), the apply merges the proposal over the card's own
+> checklist (`lib/ai/merge.ts`: kept / kept-omitted / added, ticks preserved, description
+> replaced and shown first), and the write carries the baseline the review saw.
+> Reviewed by three independent agents before it was built; the one fork — what to do with a
+> criterion the model omits — went to "keep it and say so", because with per-card accept the
+> alternative holds the whole enhancement hostage to one line.
+> **Designed, not built — "Sharpen this criterion":** a quiet action in a row's edit mode;
+> job `{ kind: "sharpen-criterion", slug, cardId, index }`, the criterion named to the model
+> by text; one `update` card whose `acceptance` carries an optional `replaces: string[]`;
+> `mergeCardBody` learns a `replaced` status that takes the new text but keeps position and
+> tick. The user named the target in the request, so the model still never gets a delete.
+> Per-criterion accept in the review is the other half and is deferred with it.
+>
 > **Roadmap lanes are data-driven.** They come from the declared phases *and* from any
 > phase number a card actually references — a card on phase 3 in a project whose
 > `roadmap.md` declares none would otherwise be present on the board and invisible on

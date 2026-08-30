@@ -18,6 +18,9 @@
    ========================================================================= */
 
 :root {
+  /* Native widgets the app cannot paint — the option list a <select> pops open, scrollbars — follow this. */
+  color-scheme: light;
+
   --bg: #f4f4f2;
   --surface: #ffffff;
   --surface-2: #efefec;
@@ -33,10 +36,20 @@
   --accent: #1f6e5b;
   --accent-ink: #175447;
   --accent-soft: #e2efea;
+  /* Text on the solid accent fill. The one place the palette needs a literal white. */
+  --on-accent: #ffffff;
 
   --s-idea: #b0761b;
   --s-active: #2a6bc4;
   --s-blocked: #c0392f;
+  /*
+     The solid destructive fill, and the text on it. Separate from --s-blocked because
+     that hue is tuned for chips and borders: in dark mode it lightens to #e2766a, where
+     white text falls to 2.99:1. A fill needs its own value per theme. These carry white
+     at 5.43:1 light and 4.72:1 dark.
+  */
+  --danger-fill: #c0392f;
+  --on-danger: #ffffff;
   --s-done: #2f7d46;
   --s-paused: #7b8280;
 
@@ -49,7 +62,28 @@
   --shadow-lift: 0 6px 14px rgba(20, 22, 20, 0.09), 0 18px 40px rgba(20, 22, 20, 0.12);
 
   /* Minimum comfortable hit area. Never make an interactive element smaller. */
+  /*
+     How tall a board lane may grow before it scrolls inside itself.
+
+     "About five cards", not exactly five: CSS cannot count children, and a measured card is
+     145-177px tall depending on whether it carries a progress bar - five plus their 12px
+     gaps lands near 840px. Capped against the viewport as well, because 840px alone still
+     runs off the bottom of a laptop screen, which is the thing the cap exists to prevent.
+
+     60vh rather than 70: the lane is not the only thing on the page. Project heading, tabs
+     and the board's own toolbar sit above it, and the column adds a head and a footer of its
+     own - at 70vh the Add button landed just under the fold on a 900px laptop, which is the
+     same complaint one notch quieter. A taller monitor still gets the full five.
+  */
+  --board-col-max: min(840px, 60vh);
   --tap: 44px;
+
+  /*
+   * The sticky mobile header: 10px padding, a --tap control, 10px padding, 1px border. Only
+   * the toast layer needs the number, to sit under the header instead of over it, and a
+   * literal there would be a magic constant nothing keeps in step with the header itself.
+   */
+  --topbar-h: 65px;
 
   /*
    * Spacing, type and control scales.
@@ -117,6 +151,8 @@
  * and a system dark compute to the same background — which is what catches them drifting.
  */
 :root[data-theme="dark"] {
+  color-scheme: dark;
+
   --bg: #131414;
   --surface: #1b1d1c;
   --surface-2: #212423;
@@ -132,10 +168,15 @@
   --accent: #5fc0a4;
   --accent-ink: #8ad6bf;
   --accent-soft: #1c2e29;
+  /* Dark text on the mint accent; white on it was the low-contrast pairing. */
+  --on-accent: #131414;
 
   --s-idea: #d9a441;
   --s-active: #6fa8e8;
   --s-blocked: #e2766a;
+  /* Lifted off the dark ground (3.91:1) while still carrying white text (4.72:1). */
+  --danger-fill: #c8483c;
+  --on-danger: #ffffff;
   --s-done: #63b87c;
   --s-paused: #8d9491;
 
@@ -146,6 +187,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"] {
+    color-scheme: dark;
+
     --bg: #131414;
     --surface: #1b1d1c;
     --surface-2: #212423;
@@ -161,10 +204,15 @@
     --accent: #5fc0a4;
     --accent-ink: #8ad6bf;
     --accent-soft: #1c2e29;
+    /* Dark text on the mint accent; white on it was the low-contrast pairing. */
+    --on-accent: #131414;
 
     --s-idea: #d9a441;
     --s-active: #6fa8e8;
     --s-blocked: #e2766a;
+    /* Lifted off the dark ground (3.91:1) while still carrying white text (4.72:1). */
+    --danger-fill: #c8483c;
+    --on-danger: #ffffff;
     --s-done: #63b87c;
     --s-paused: #8d9491;
 
@@ -265,6 +313,29 @@ a:hover {
   line-height: 23px;
 }
 
+/*
+   Available to a screen reader, absent from the page.
+
+   Tailwind ships `sr-only`, not this name, and nothing here defined it - so the toast
+   layer's two `aria-live` regions have been rendering their text visibly, under the
+   toast that already says it. Found while giving the dashboard's action column a
+   heading that only a screen reader needs.
+
+   `clip-path: inset(50%)` rather than the old `clip: rect(...)`: the latter is
+   deprecated, and on a focusable descendant some browsers scroll to the collapsed box.
+*/
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 .soft {
   color: var(--ink-soft);
 }
@@ -307,8 +378,38 @@ a:hover {
   display: contents;
 }
 
+/*
+   Always present, at every width.
+
+   It used to exist only below 900px, as somewhere to hang the rail's menu button. Search is
+   the thing you want from anywhere, so the bar is now permanent and the mobile-only parts —
+   the menu button and the brand — are what get hidden instead, since the rail carries both
+   on desktop. Padded past the rail so the field lines up with the content it searches.
+*/
 .topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  padding: 10px var(--pane-x) 10px calc(var(--rail-w) + var(--pane-x));
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.topbar .menu-button,
+.topbar .topbar-brand {
   display: none;
+}
+
+.topbar-search {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+.topbar-search-input {
+  width: 100%;
+  max-width: 520px;
 }
 
 .rail {
@@ -500,12 +601,23 @@ a:hover {
 .button-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 .button-primary:hover:not(:disabled) {
   background: var(--accent-ink);
   border-color: var(--accent-ink);
-  color: #ffffff;
+  color: var(--on-accent);
+}
+/*
+ * Same specificity as `.button:disabled`, later in the file, so it wins. Without it the
+ * generic rule dimmed the text and left the accent fill, and "Create project" read as
+ * grey words on a green pill while the name field was still empty. A disabled main action
+ * looks inert, the same way a disabled select does.
+ */
+.button-primary:disabled {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--ink-faint);
 }
 
 .link-button {
@@ -537,14 +649,50 @@ a:hover {
   font-size: 16px;
   width: 100%;
 }
+/*
+ * A <select> is a replaced element: it takes no ::after, and a chevron drawn as a data-URI
+ * background can see neither currentColor nor the theme tokens. So the arrow is an inline
+ * SVG sibling inside `.select-wrap`, rendered by components/ui/Select.tsx, and the native
+ * chrome is switched off here. The wrapper is the element that takes width.
+ */
+.select-wrap {
+  position: relative;
+  display: inline-flex;
+}
 .select {
-  width: auto;
-  padding-right: 32px;
+  appearance: none;
+  width: 100%;
+  padding-right: 36px; /* a 16px chevron inset 12px from the right edge */
+}
+.select-chevron {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  color: var(--ink-soft);
 }
 .select:disabled,
 .input:disabled {
   color: var(--ink-faint);
   background: var(--surface-2);
+}
+.select:disabled + .select-chevron {
+  color: var(--ink-faint);
+}
+/*
+ * A bordered field collapses the focus ring onto its own border. The global ring sits 2px
+ * off the element, which on a control that already has a 1px border reads as two borders
+ * with a gap between them. Drawn over the border instead - negative offset, and the border
+ * itself turns accent so the corner stays one continuous curve - it is a single 2px ring.
+ */
+.input:focus-visible,
+.select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
 }
 
 input[type="checkbox"] {
@@ -613,12 +761,17 @@ input[type="checkbox"] {
 
 /* ---------------------------------------------------------------- tabs */
 
+/* Title and tabs are one header unit; the tabs' bottom margin is the page rhythm below. */
+.page-title {
+  margin: 0 0 var(--space-3);
+}
+
 .tabs {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
   border-bottom: 1px solid var(--line);
-  margin-bottom: 28px;
+  margin-bottom: var(--space-6);
   padding-bottom: 2px;
 }
 
@@ -646,13 +799,25 @@ input[type="checkbox"] {
   font-weight: 600;
 }
 
-.tab-badge {
+/*
+ * The count pill (components/ui/Badge.tsx). One class for every place a number badges a
+ * project - the tab bar, the rail, the dashboard - so they cannot drift apart again. The
+ * min-width keeps a single digit round rather than oval; the size is the 12px floor.
+ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent-ink);
-  border-radius: 999px;
-  padding: 1px 9px;
   font-size: 12px;
   font-weight: 600;
+  line-height: 1;
+  flex: none;
 }
 
 /* ---------------------------------------------------------------- metabar */
@@ -666,7 +831,6 @@ input[type="checkbox"] {
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  margin-bottom: 26px;
 }
 
 /* An error takes its own row; the bar is a wrapping flex of fields. */
@@ -692,7 +856,6 @@ input[type="checkbox"] {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: var(--space-4) var(--space-5);
-  margin-bottom: var(--space-6);
 }
 
 .repo-head {
@@ -775,9 +938,27 @@ input[type="checkbox"] {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: var(--space-4) var(--space-5);
-  margin-bottom: var(--space-6);
 }
 
+.danger-panel {
+  background: var(--surface-2);
+  /* The blocked hue on the border only. A destructive action should be findable without
+     the panel shouting over the plan it sits under. */
+  border: 1px solid var(--s-blocked);
+  border-radius: var(--radius);
+  padding: var(--space-4) var(--space-5);
+}
+.danger-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.danger-blurb {
+  margin: var(--space-2) 0 0;
+  max-width: 62ch;
+}
 .export-head {
   display: flex;
   align-items: center;
@@ -911,7 +1092,7 @@ input[type="checkbox"] {
 /* A select inside a field fills it; a fixed width would leave a ragged right edge. */
 .field-control,
 .field .input,
-.field .select {
+.field .select-wrap {
   width: 100%;
 }
 
@@ -982,6 +1163,12 @@ input[type="checkbox"] {
   border-bottom: 1px solid var(--line);
 }
 
+.drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
 .drawer-title {
   font-size: var(--text-md);
   font-weight: 600;
@@ -1019,6 +1206,12 @@ input[type="checkbox"] {
  * asking about something that is usually hard to undo.
  */
 .confirm {
+  /*
+     Tailwind's preflight sets `margin: 0` on every element, which silently removes the
+     `margin: auto` a UA gives `dialog:modal` - the one thing that centres it. Without
+     this the confirmation renders hard against the top-left corner of the viewport.
+  */
+  margin: auto;
   width: min(420px, calc(100vw - var(--space-6)));
   padding: var(--space-5);
 
@@ -1057,16 +1250,46 @@ input[type="checkbox"] {
 
 /* ---------------------------------------------------------------- editor */
 
+/*
+ * The frame has a height and the editor scrolls inside it.
+ *
+ * It used to grow with the text. A long brief then made the page itself scroll for
+ * screens, with the repo panel, the AI actions and export pushed somewhere below it all.
+ * Now the frame opens at 60vh - about what the previous 440px fixed minimum was on a
+ * laptop - and the user drags the corner grip to whatever suits them, between a floor that
+ * still shows a paragraph and a ceiling of the viewport. `overflow: hidden` is what makes
+ * `resize` take effect, not only what clips the corners.
+ */
 .editor-frame {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  min-height: 440px;
+  height: 60vh;
+  min-height: 240px;
+  max-height: 92vh;
   overflow: hidden;
+  resize: vertical;
 }
 
+/*
+ * The wrapper `@uiw/react-codemirror` puts between the frame and `.cm-editor`.
+ *
+ * With `theme="none"` it renders a `<div class="cm-theme-none">` that nothing sizes. So
+ * `height: 100%` on `.cm-editor` resolved against an AUTO-height parent, where it behaves
+ * as `auto` - and the editor grew to its content instead of to the frame. On a 4.4KB brief
+ * that was 2157px inside a 540px box whose `overflow: hidden` then clipped it: no scrollbar
+ * on the editor, and 1600px of text unreachable. The page scrollbar is not a substitute,
+ * because the frame never grows to reveal what it is hiding.
+ *
+ * Targeted as the direct child rather than by `.cm-theme-none`, because that class name is
+ * derived from the `theme` prop and would silently stop matching if the theme changed.
+ */
+.editor-frame > div {
+  height: 100%;
+}
 .editor-frame .cm-editor {
+  height: 100%;
   background: transparent;
   font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 17px;
@@ -1096,8 +1319,27 @@ input[type="checkbox"] {
    */
   max-width: none;
 }
-.editor-frame .cm-scroller {
-  min-height: 438px;
+/*
+ * Three classes deep on purpose. CodeMirror's own base theme puts `font-family: monospace`
+ * on the scroller and injects that rule at runtime, after this stylesheet, so a selector of
+ * equal specificity loses and the brief rendered in the OS fallback - Courier New - while
+ * the rule on `.cm-editor` above sat there believing it had set Instrument Sans.
+ */
+.editor-frame .cm-editor .cm-scroller {
+  overflow: auto;
+  font-family: inherit;
+  /*
+     Thin and themed, because the frame is a surface with its own border and a full-width OS
+     scrollbar sits inside it looking like a second one.
+
+     Deliberately NOT `scrollbar-gutter: stable`. Reserving the track would stop the text
+     reflowing by 8px when the scrollbar appears - but it reserves it always, including on a
+     short brief that never scrolls, and "the editing surface fills its frame" is an older
+     guarantee with its own e2e assertion. An 8px band of permanently dead space inside a
+     bordered box is the exact complaint that test exists to catch.
+  */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
 .editor-frame .cm-placeholder {
   color: var(--ink-faint);
@@ -1112,7 +1354,7 @@ input[type="checkbox"] {
 .board-wrap {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .board {
@@ -1160,8 +1402,35 @@ input[type="checkbox"] {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0 12px 14px;
+  padding: 0 12px;
   flex: 1;
+
+  /*
+     The lane scrolls; the page does not. A first synthesis drops a dozen cards into one
+     column, and without this the board grew taller than the screen - so comparing two
+     columns meant scrolling down and sideways at once, with the headings gone off the top.
+  */
+  max-height: var(--board-col-max);
+  overflow-y: auto;
+  /* Thin and themed, matching the brief editor: a full-width OS scrollbar inside a bordered
+     lane reads as a second border. No stable gutter - it would narrow every card by 8px
+     including in the short columns that never scroll. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/*
+   Always reachable, whatever the column holds.
+
+   Inside the scroll area this button sat below the last card, so adding to a column of
+   fourteen meant scrolling past thirteen you were not adding. The padding matches
+   `.column-body` so the button lines up with the cards above it.
+*/
+.column-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 12px 14px;
 }
 
 .column-add {
@@ -1235,6 +1504,16 @@ input[type="checkbox"] {
  * standalone separator element is left dangling at the end of a line when the row wraps;
  * this way it wraps along with the value it introduces.
  */
+/*
+   The card number. Mono because it is a code, not a word - the one place `lib/labels.ts`
+   does not apply, since an identifier read aloud is the identifier.
+*/
+.card-ticket {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+
 .card-meta > *:not(:first-child)::before {
   content: "·";
   margin-right: 10px;
@@ -1319,15 +1598,131 @@ input[type="checkbox"] {
 .criteria input {
   margin-top: 2px;
 }
+/*
+ * A criterion row: the checkbox label takes the width, the three icon buttons sit at its
+ * end and wrap underneath at phone width. The editor and the add form are rows of their own.
+ */
+.criterion-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.criterion-row > label {
+  flex: 1 1 220px;
+}
+.criterion-controls {
+  display: flex;
+  gap: 6px;
+  align-self: center;
+}
+.criterion-editor,
+.criterion-add {
+  flex: 1 1 100%;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.criterion-add {
+  margin-top: var(--space-3);
+}
+.criterion-editor .input,
+.criterion-add .input {
+  flex: 1 1 220px;
+  width: auto;
+}
+
+/* ---------------------------------------------------------------- card page */
+
+.card-page-head {
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.card-page-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* A reading surface: it keeps its measure, and a long token cannot widen the page. */
+.card-page-description {
+  max-width: 72ch;
+  overflow-wrap: anywhere;
+}
+.card-page-paragraph {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-base);
+  line-height: var(--lead-body);
+}
+
+/* ---------------------------------------------------------------- enhance history */
+
+.history-list {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.history-proposal {
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- settings */
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.settings-steps {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settings-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-meta {
+  overflow-wrap: anywhere;
+}
+/* A rail link like the projects above it - same 44px target - only quieter. */
+.rail-settings {
+  margin: 0 0 var(--space-2);
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
 
 /* ---------------------------------------------------------------- ai panel */
+
+/*
+ * The vertical rhythm of a project page: its top-level blocks sit --space-6 apart, and the
+ * gap comes from this container, never from a block. Blocks carry no margins of their own,
+ * so nothing depends on which neighbour a block happens to have - `.metabar` and
+ * `.backlinks` each used to add one of theirs on top of this gap, which is how the meta bar
+ * sat 58px above the brief while everything else sat 32. `.tabs` ends on the same token, so
+ * every view's first block lands on the grid.
+ */
+.page-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
 
 .ai-panel {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  margin-top: 30px;
-  padding-top: 24px;
+  padding-top: var(--space-5);
   border-top: 1px solid var(--line);
 }
 
@@ -1509,11 +1904,99 @@ input[type="checkbox"] {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-width: 780px;
+  /*
+     No width cap on the card.
+
+     A measure is right for prose read straight through and wrong here: a question is a
+     paragraph with a text area under it, and capping the card left the answer box at about
+     half the screen with the rest empty beside it. Same argument as the brief editor - the
+     box you type in should be the box you were handed. The measure moves to the paragraph.
+  */
+}
+
+/*
+   Suggested answers.
+
+   Buttons, not radios: choosing one fills the answer box rather than committing it, so the
+   last edit before a sentence becomes a confirmed fact is still the user's. `aria-pressed`
+   is what carries the chosen state to a screen reader, since nothing here is a form control.
+
+   The manual box below them is the fourth option and is deliberately not styled as one - it
+   is the thing that was already there, and dressing it up as a card would suggest it is
+   another suggestion.
+*/
+.question-head {
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.answer-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.answer-option {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+}
+.answer-option:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.answer-option:disabled {
+  cursor: not-allowed;
+  color: var(--ink-faint);
+}
+.answer-option-chosen {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Title and badge on one line, the badge pushed to the end and never shrinking. */
+.answer-option-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.answer-option-text {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+}
+.answer-option-pill {
+  flex: none;
+  align-self: center;
+}
+.answer-option-why {
+  color: var(--ink-soft);
+}
+/* Says whether the option is quoted or inferred. It is the difference between a decision
+   the project already made and a guess, and it must not be mistaken for the answer. */
+.answer-option-source {
+  color: var(--ink-faint);
 }
 
 .question-text {
   margin: 0;
+  /* The prose keeps a measure even though the card no longer has one. */
+  max-width: 78ch;
   font-size: 17px;
   line-height: 26px;
 }
@@ -1598,6 +2081,27 @@ textarea.input {
 .is-danger {
   color: var(--s-blocked);
 }
+/*
+   The one destructive action that commits. Outlined red says "this is about removal";
+   filled red says "this is the removal", and the confirm button in a destructive dialog
+   is the second thing. The trigger that opens it stays outlined, so the two are not
+   competing for the same weight.
+*/
+.button-primary.is-danger {
+  background: var(--danger-fill);
+  border-color: var(--danger-fill);
+  color: var(--on-danger);
+}
+.button-primary.is-danger:hover:not(:disabled) {
+  /* No separate hover hue: darkening a red already at its contrast floor buys nothing
+     legible. The lift is the affordance. */
+  box-shadow: var(--shadow-lift);
+}
+.button-primary.is-danger:disabled {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--ink-faint);
+}
 
 /* Centres a glyph that is marked aria-hidden, since the button carries the real name. */
 .icon-button-glyph {
@@ -1605,6 +2109,16 @@ textarea.input {
   align-items: center;
   justify-content: center;
   line-height: 1;
+}
+/*
+ * The primitive sizes the glyph, not the caller. An inline <svg> with only a viewBox has no
+ * intrinsic size and collapsed to nothing inside the 36px box - the drawer's close button
+ * rendered as an empty square. lucide emits width/height of its own; this agrees with them.
+ */
+.icon-button-glyph > svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 
 .stack {
@@ -1637,15 +2151,24 @@ textarea.input {
   }
 
   .topbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    position: sticky;
-    top: 0;
-    z-index: 30;
+    /* No rail to clear at this width, and the menu button and brand come back. */
     padding: 10px 16px;
-    background: var(--surface-2);
-    border-bottom: 1px solid var(--line);
+    flex-wrap: wrap;
+  }
+  .topbar .menu-button,
+  .topbar .topbar-brand {
+    display: inline-flex;
+  }
+  /*
+     Its own row under the brand. Sharing one line at 390px left the field about 120px wide,
+     which is not a search box — it is a place a query goes to be truncated.
+  */
+  .topbar-search {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .topbar-search-input {
+    max-width: none;
   }
 
   .topbar-brand {
@@ -1802,8 +2325,7 @@ textarea.input {
 /* ---------------------------------------------------------------- links & search */
 
 .backlinks {
-  margin-top: 30px;
-  padding-top: 24px;
+  padding-top: var(--space-5);
   border-top: 1px solid var(--line);
 }
 
@@ -1887,6 +2409,7 @@ textarea.input {
 .icon-button:hover:not(:disabled) {
   background: var(--accent-soft);
   border-color: var(--accent);
+  color: var(--accent-ink);
 }
 .icon-button:disabled {
   color: var(--ink-faint);

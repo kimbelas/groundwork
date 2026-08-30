@@ -20,7 +20,12 @@ export default async function SearchPage({
 }) {
   const { q } = await searchParams;
   const query = (q ?? "").trim();
-  const hits = query.length >= 2 ? await searchVault(query) : [];
+  /*
+   * No length guard here any more; `searchVault` owns it. The rule stopped being about
+   * length when a bare card number became a valid query - `3` is one character and exact,
+   * while `a` is one character and meaningless, and only the search itself can tell.
+   */
+  const hits = await searchVault(query);
 
   const grouped = new Map<string, typeof hits>();
   for (const hit of hits) {
@@ -56,8 +61,10 @@ export default async function SearchPage({
         </Button>
       </form>
 
-      {query.length > 0 && query.length < 2 && (
-        <p className="body-sm soft">Type at least two characters.</p>
+      {query.length > 0 && query.length < 2 && hits.length === 0 && (
+        <p className="body-sm soft">
+          Type at least two characters — or a card number, like <span className="mono">#7</span>.
+        </p>
       )}
 
       {query.length >= 2 && hits.length === 0 && (

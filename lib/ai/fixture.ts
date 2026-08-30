@@ -1,8 +1,9 @@
+import { parseChecklist } from "@/lib/checklist";
 import { readExcerpts, writeProposal } from "@/lib/runs";
-import { getProject } from "@/lib/vault";
+import { getCard, getProject, getQuestions } from "@/lib/vault";
 
 import type { AiEngine } from "./engine";
-import type { AiEvent, AiJob, Proposal } from "./types";
+import type { AiEvent, AiJob, Proposal, Suggestions } from "./types";
 
 /**
  * A deterministic engine for tests.
@@ -92,6 +93,16 @@ async function buildProposal(job: AiJob, runId: string): Promise<Proposal> {
   }
 
   if (job.kind === "enhance-card") {
+    /*
+     * Echo the card's FIRST existing criterion with a trailing full stop, and omit the rest.
+     * That one proposal exercises all three merge outcomes the e2e suite has to see: a match
+     * that keeps the user's bytes (the period must not win), a criterion the model left out
+     * (kept and labelled), and a genuine addition. A card with no criteria produces exactly
+     * the single addition it always did.
+     */
+    const card = await getCard(job.slug, job.cardId).catch(() => null);
+    const first = card ? parseChecklist(card.body)[0] : undefined;
+
     return {
       runId,
       job: "enhance-card",
@@ -107,7 +118,10 @@ async function buildProposal(job: AiJob, runId: string): Promise<Proposal> {
           size: "M",
           confidence: 0.6,
           body: "Rewritten with specifics drawn from the brief rather than boilerplate.",
-          acceptance: ["The described behaviour is observable end to end"],
+          acceptance: [
+            ...(first ? [`${first.text}.`] : []),
+            "The described behaviour is observable end to end",
+          ],
           groundedIn: firstSentence,
           // Absent rather than null when this run had no excerpts: the three states are
           // the contract, and a fixture that flattened them would hide a regression.
@@ -225,10 +239,82 @@ async function buildProposal(job: AiJob, runId: string): Promise<Proposal> {
   };
 }
 
+
+/**
+ * Candidate answers for every open question, derived from the project's real questions.
+ *
+ * Deliberately uneven: the first open question gets three options, the second gets one.
+ * That is the shape the schema tolerates on purpose - three is what the prompt asks for and
+ * one is what a thin question honestly yields - and the UI has to render both without the
+ * second looking broken. A fixture that always produced three would leave that untested.
+ *
+ * The first option quotes the brief so the grounding badge is exercised against a real
+ * verification; the rest are honest nulls.
+ */
+async function buildSuggestions(job: AiJob, runId: string): Promise<Suggestions> {
+  const project = await getProject(job.slug);
+  const brief = project.brief.trim();
+  const quote = (brief.match(/[^.\n]{20,180}\./)?.[0] ?? brief.slice(0, 120)).trim();
+
+  const open = (await getQuestions(job.slug)).filter((q) => q.status === "open");
+
+  return {
+    runId,
+    job: "suggest-answers",
+    slug: job.slug,
+    summary: `Options for ${open.length} open question${open.length === 1 ? "" : "s"}.`,
+    questions: open.map((q, i) => ({
+      questionId: q.id,
+      options:
+        i === 0
+          ? [
+              {
+                text: "Take the cheap version now and revisit after the first release.",
+                because: "Smallest change; costs a revisit later.",
+                // Exactly one recommendation per question - the badge means nothing if
+                // every option carries it.
+                recommended: true,
+                groundedIn: quote.length > 0 ? quote : null,
+              },
+              {
+                text: "Do it properly now and accept the extra work this phase.",
+                because: "Avoids a migration; moves the release out.",
+                recommended: false,
+                groundedIn: null,
+              },
+              {
+                text: "Defer it and record the decision as out of scope for v1.",
+                because: "Keeps the plan honest rather than open.",
+                recommended: false,
+                groundedIn: null,
+              },
+            ]
+          : [
+              {
+                text: "Keep the current behaviour.",
+                because: "Nothing in the brief argues for changing it.",
+                recommended: true,
+                groundedIn: null,
+              },
+            ],
+    })),
+  };
+}
+
 export const fixtureEngine: AiEngine = {
   name: "fixture",
 
   async run(job: AiJob, runId: string, onEvent: (e: AiEvent) => void): Promise<void> {
+    if (job.kind === "suggest-answers") {
+      onEvent({ type: "step", label: "Reading the open questions" });
+      const suggestions = await buildSuggestions(job, runId);
+      onEvent({ type: "step", label: "Drafting options" });
+      // One output path per run: the job kind on the record says which shape it holds.
+      await writeProposal(runId, suggestions);
+      onEvent({ type: "done", runId });
+      return;
+    }
+
     onEvent({ type: "step", label: "Reading the brief" });
     const proposal = await buildProposal(job, runId);
 

@@ -39,7 +39,7 @@ export interface AiEngine {
 | Job | Reads | Produces | Never does |
 |---|---|---|---|
 | `synthesize` | brief, archetype, answered questions, existing cards | phases, new cards, risks, assumptions, questions | delete anything |
-| `enhance-card` | one card, the full brief, sibling card titles | rewritten body + acceptance criteria for that card | touch other cards |
+| `enhance-card` | one card, the full brief, sibling card titles | an expanded description, plus *additional* acceptance criteria merged over the card's own (kept in order, ticks preserved) | touch other cards; remove, reword or untick a criterion the user wrote |
 | `critique` | the whole project | gaps, new risks, new questions | edit cards |
 
 `synthesize` on a project that already has cards is an **update**, not a reset: existing cards may appear as edits, and the model is told explicitly not to propose deleting work the user has done.
@@ -102,11 +102,15 @@ Progress must show what is actually happening. A spinner for a three-minute run 
 
 Hold the child process in a module-level variable rather than tying its lifetime to the response stream, exactly as claude-coach does. Closing the tab must not kill a synthesis run. Stopping is explicit: `GET /api/ai/run?action=stop`.
 
-If the tab is gone when the run finishes, the proposal is still on disk. The project shows a "proposal ready" banner on next load.
+If the tab is gone when the run finishes, the proposal is still on disk, and it is found again **by job and card, never by "newest ready"**: `pendingRunFor` in `lib/runs.ts` is the one lookup. The brief page asks for the newest unapplied `synthesize` or `critique` run; a card asks for its own `enhance-card` runs, which is why `run.json` carries `cardId` for that job. Two job-agnostic `find`s used to do this, and a finished card enhancement showed up on the brief page as if it were a synthesis. A reverted run has its `appliedAt` cleared, so it is offered again — on the surface it belongs to. The runs list is a directory scan, not an index; fine at this scale. History (`EnhanceHistory`) shows the proposal a run produced, not a diff against the current card — that diff is right before an apply and false after one.
 
 ### Locking
 
 `.groundwork/run.lock` holds the current runId and start time. A second run attempt returns 409 with a message naming what is already running. A lock older than 30 minutes is considered stale and can be broken from the UI.
+
+### Account
+
+The CLI runs on whatever account it is signed into; the app holds no key. `lib/ai/account.ts` asks the CLI which — `claude auth status --json`, spawned the same way a run is, with a timeout — and forwards only `loggedIn`, `email`, `orgName`, `subscriptionType`, `authMethod`. It never reads `~/.claude.json` or `~/.claude/.credentials.json`: that would be a fifth `fs` exception into the user's home, and on the machine this was built on the file named a different account than the CLI reported. The answer is cached for a minute; `/settings` shows it with the commands for every other state (signed out, not installed, unreadable), and the run buttons on the brief page and in the card editor disable themselves with a link there when no account is connected. Under the fixture engine nothing is spawned.
 
 ## Proposal schema
 
@@ -223,7 +227,7 @@ The proposal renders as independent blocks. Each accepts or rejects on its own.
 | Block | Shows |
 |---|---|
 | New card | Title, metadata, body, acceptance criteria, grounding quote or "inferred" flag |
-| Card update | Field-level before/after, body diff |
+| Card update | Title before/after, description before/after, and every criterion as it will be in the file — kept, kept though the model omitted it, or added — with its tick. Computed by `lib/ai/merge.ts`, the same function the apply runs |
 | New phase | Number, name, goal |
 | New risk / assumption | Text, likelihood, impact, mitigation |
 | New question | The question, and what it is blocking |
@@ -236,7 +240,7 @@ On confirm, in order:
 
 1. Compute the exact file set the accepted blocks will touch.
 2. Copy each of those files to `vault/<slug>/.snapshots/<ISO>/`, preserving relative paths, and write a `manifest.json` naming the runId, the copied files, and the files the apply will create.
-3. Write through `lib/vault.ts` — never directly.
+3. Write through `lib/vault.ts` — never directly. An `update` card is **merged, not replaced** (`lib/ai/merge.ts`): the card's own checklist keeps every line, tick and position and the proposal can only add; the description above it is replaced. The write carries the baseline the review was computed against — `selection.baselines[cardId]` — so a card edited between review and accept is a 409, and the apply refuses an update with no baseline at all.
 4. Stamp `updated` on the project.
 5. Record the applied runId so revert knows what it is undoing.
 
@@ -288,7 +292,7 @@ The prompt files are as much of the product as the code. Rules that go in all th
 - **No filler phases.** "Testing" and "Deployment" as standalone phases on every project are template output. If testing matters here, it belongs in acceptance criteria.
 - **Match the vocabulary of the brief.** If the user wrote "tenants," do not return "customers."
 - **Size and confidence honestly.** Low confidence on genuinely unclear work is the correct answer and is more useful than false precision.
-- **Never propose deletions.** The user's work is not the model's to remove.
+- **Never propose deletions.** The user's work is not the model's to remove. That includes a single acceptance criterion: `enhance-card` returns the existing ones verbatim and adds after them, and the app keeps them regardless — a reworded criterion arrives as a duplicate beside the original for the user to resolve, never as a replacement.
 - **Write acceptance criteria that could fail.** "Works correctly" is not a criterion. "Webhook handling is idempotent" is.
 - **Cite the code, or say nothing about it.** When a project has a connected repository the run is handed a file of excerpts and told the repository itself is unreachable. A claim about what the code already does carries `groundedInCode` quoting one of those excerpts verbatim; an invented citation is worse than omitting the field.
 - **Say when the code contradicts the brief.** Excerpts showing work already done, or done differently, are the most valuable thing retrieval surfaces. A card proposing what already exists is worse than no card — prefer an update, or a question naming the discrepancy.

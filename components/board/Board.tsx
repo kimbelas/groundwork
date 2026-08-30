@@ -21,6 +21,8 @@ import { useCallback, useMemo, useState } from "react";
 
 import { ColumnManager } from "./ColumnManager";
 import { CardDetail } from "./CardDetail";
+import { cardHref } from "@/lib/links";
+
 import { CardTile } from "./CardTile";
 import { Column } from "./Column";
 import type { BoardCard, BoardData } from "./types";
@@ -247,6 +249,7 @@ export function Board({ data }: { data: BoardData }) {
                     <CardTile
                       key={card.id}
                       card={card}
+                      href={cardHref(data.slug, card.id)}
                       selected={card.id === selected}
                       onOpen={setSelected}
                     />
@@ -277,7 +280,6 @@ export function Board({ data }: { data: BoardData }) {
           phases={data.phases}
           cards={data.cards}
           onClose={() => setSelected(null)}
-          onChanged={() => router.refresh()}
         />
       )}
     </div>

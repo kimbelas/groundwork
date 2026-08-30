@@ -116,8 +116,11 @@ test("answering updates the counts in the tab and the rail", async ({ page }) =>
 
   await expect(tab).toContainText("1", { timeout: 15_000 });
   await expect(
-    page.getByRole("navigation", { name: "Vault" }).getByRole("link", { name: /Iota Questions/ }),
-  ).toContainText("1?");
+    page
+      .getByRole("navigation", { name: "Vault" })
+      .getByRole("link", { name: /Iota Questions/ })
+      .getByLabel("1 open question"),
+  ).toHaveText("1");
 });
 
 test("reopening an answered question returns it to the queue", async ({ page }) => {

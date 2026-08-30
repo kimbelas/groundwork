@@ -125,10 +125,10 @@ const RULES = [
  *
  * A `--custom-property: #hex` declaration is exactly where hex values belong — that is
  * the palette. What erodes a design is a one-off literal in a rule somewhere, so only
- * those are flagged. `#fff` stays allowed: text on the accent fill needs a literal.
+ * those are flagged. `#fff` used to be exempt for text on the accent fill; that is
+ * `--on-accent` now, so there is no literal left to allow and the exemption is gone.
  */
 const HEX_DECL = /(^|[;{}\s])(-{0,2}[a-zA-Z][\w-]*)\s*:\s*(#[0-9a-fA-F]{3,8})\b/g;
-const HEX_ALLOWED = /^#(?:fff|ffffff)$/i;
 
 /**
  * The comfort floors, and the two rules in this file that fail OPEN.
@@ -303,6 +303,7 @@ const TAP_NAMES = [
   "\\.theme-toggle",
   "\\.panel-close",
   "\\.icon-btn",
+  "\\.toast",
 ];
 
 const TAP_CONTEXT = new RegExp(
@@ -348,7 +349,6 @@ for (const file of files) {
     const prop = hex[2] ?? "";
     const value = hex[3] ?? "";
     if (prop.startsWith("--")) continue; // the palette itself
-    if (HEX_ALLOWED.test(value)) continue;
     report(
       hex.index,
       "hard-coded colour",

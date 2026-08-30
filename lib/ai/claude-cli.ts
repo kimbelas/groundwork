@@ -40,6 +40,11 @@ function defaultClaudeCmd(): string {
 
 const CLAUDE_CMD = process.env.GROUNDWORK_CLAUDE_CMD ?? defaultClaudeCmd();
 
+/** The command a run spawns — shared with the account check, so both ask the same CLI. */
+export function claudeCommand(): string {
+  return CLAUDE_CMD;
+}
+
 /**
  * Permissions for the spawned run.
  *
@@ -166,6 +171,11 @@ function instructionFor(job: AiJob, outPath: string, excerptsPath: string | null
       );
     case "critique":
       return `Read prompts/critique.md and execute it for the project at "vault/${job.slug}". ${shared}`;
+    case "suggest-answers":
+      return (
+        `Read prompts/suggest-answers.md and execute it for the project at ` +
+        `"vault/${job.slug}". ${shared}`
+      );
   }
 }
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import { VaultError } from "./errors";
 import {
   buildLinkGraph,
+  cardHref,
   cardNode,
   projectNode,
   type IndexedCard,
@@ -67,9 +68,19 @@ export interface ProjectSummary {
   warnings: string[];
 }
 
+/**
+ * `mtimeMs` is on BOTH variants, and that is the point of it.
+ *
+ * It is `project.md`'s modification time - the precondition token for a write - carried so
+ * a listing can offer a destructive action against the state it was rendered from, rather
+ * than re-reading the file at click time and guarding nothing. An unreadable project is
+ * exactly the one a user most wants to remove, so it must carry a baseline too; `0` means
+ * there was no `project.md` to read, which `assertUnchanged` then matches against a
+ * genuinely absent file.
+ */
 export type ProjectEntry =
-  | { ok: true; slug: string; summary: ProjectSummary }
-  | { ok: false; slug: string; error: string };
+  | { ok: true; slug: string; mtimeMs: number; summary: ProjectSummary }
+  | { ok: false; slug: string; mtimeMs: number; error: string };
 
 export interface Project extends ProjectSummary {
   brief: string;
@@ -260,6 +271,8 @@ const QUESTIONS_FILE = "questions.md";
 const RISKS_FILE = "risks.md";
 const LOG_FILE = "log.md";
 const CARDS_DIR = "cards";
+/** Both levels of removal land here: a card under its project, a project under the root. */
+const TRASH_DIR = ".trash";
 
 function projectPath(root: string, slug: string, ...rest: string[]): string {
   return containedPath(root, slug, ...rest);
@@ -317,7 +330,7 @@ async function loadSummary(root: string, slug: string): Promise<ProjectEntry> {
   const projFile = projectPath(root, slug, PROJECT_FILE);
   const project = await readWithMtime(projFile);
   if (project === null) {
-    return { ok: false, slug, error: `${PROJECT_FILE} is missing` };
+    return { ok: false, slug, mtimeMs: 0, error: `${PROJECT_FILE} is missing` };
   }
 
   const data = readData(project.raw);
@@ -325,7 +338,7 @@ async function loadSummary(root: string, slug: string): Promise<ProjectEntry> {
   // would silently break every link that resolves by folder.
   const parsed = ProjectMetaSchema.safeParse({ name: slug, ...data, slug });
   if (!parsed.success) {
-    return { ok: false, slug, error: describeIssues(parsed.error) };
+    return { ok: false, slug, mtimeMs: project.mtimeMs, error: describeIssues(parsed.error) };
   }
 
   // The side documents and the card column are independent reads.
@@ -372,7 +385,7 @@ async function loadSummary(root: string, slug: string): Promise<ProjectEntry> {
     warnings,
   };
 
-  return { ok: true, slug, summary };
+  return { ok: true, slug, mtimeMs: project.mtimeMs, summary };
 }
 
 /**
@@ -389,7 +402,13 @@ async function loadSummaryShared(root: string, slug: string): Promise<ProjectEnt
   if (existing) return existing;
 
   const pending = loadSummary(root, slug).catch(
-    (e): ProjectEntry => ({ ok: false, slug, error: (e as Error).message }),
+    /*
+     * No baseline on the unexpected path, deliberately. This branch catches a throw from
+     * anywhere in the load, so nothing here knows whether `project.md` was read - and a
+     * `0` guessed for a file that does exist would be a precondition that always fails.
+     * That is the safe direction: the delete refuses and asks for a reload.
+     */
+    (e): ProjectEntry => ({ ok: false, slug, mtimeMs: 0, error: (e as Error).message }),
   );
   inFlight.set(slug, pending);
 
@@ -440,7 +459,7 @@ export async function listProjects(): Promise<ProjectEntry[]> {
       // A directory whose name is not a legal slug is reported, not skipped — a
       // silently invisible project is worse than a visible complaint.
       if (!isLegalSlug(slug)) {
-        return { ok: false, slug, error: "Folder name is not a valid project slug" };
+        return { ok: false, slug, mtimeMs: 0, error: "Folder name is not a valid project slug" };
       }
 
       const cached = cachingEnabled() ? summaryCache.get(slug) : undefined;
@@ -678,6 +697,16 @@ export interface CreateProjectInput {
   name: string;
   slug?: string;
   archetype?: ProjectMeta["archetype"];
+  /**
+   * An already-validated absolute repository path, written into the project's first
+   * frontmatter rather than patched in afterwards.
+   *
+   * One write instead of create-then-connect, which matters because the second half of a
+   * two-step can fail: a project created and then left unconnected is a worse outcome than
+   * either "created" or "not created". Validation is the caller's job - this module knows
+   * nothing about trees outside the vault, which is the whole reason `lib/repo.ts` exists.
+   */
+  repo?: string;
 }
 
 export async function createProject(input: CreateProjectInput): Promise<ProjectMeta> {
@@ -701,6 +730,7 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectM
     stage: "idea",
     health: "green",
     archetype: input.archetype ?? "internal-tool",
+    ...(input.repo ? { repo: input.repo } : {}),
     columns: [...DEFAULT_COLUMNS],
     created: now,
     updated: now,
@@ -715,6 +745,91 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectM
 
   invalidate(slug);
   return meta;
+}
+
+/**
+ * Move a whole project into `vault/.trash/`.
+ *
+ * ## Why this moves rather than unlinks
+ *
+ * The same argument as `trashCard`, one level up. What is being removed is a folder a
+ * person has been writing prose into for weeks, and this app has no undo for it. A rename
+ * is recoverable by hand; an `rm -rf` is recoverable only from git, and the vault's git
+ * history belongs to the user - it is not something this app may assume exists. So the
+ * destructive-sounding button does a reversible thing, and the confirmation is free to say
+ * so truthfully.
+ *
+ * `listProjectSlugs` already skips directories starting with `.`, so a trashed project
+ * leaves the rail, the dashboard and the link graph the moment it lands here. No caller
+ * needs to learn about this directory.
+ *
+ * ## Why the destination carries a timestamp
+ *
+ * Trashing `alpha`, creating a new `alpha`, and trashing that too must not merge the two
+ * into one folder. On Windows it would not even get that far: renaming onto an existing
+ * directory fails rather than replacing it, so the second delete would surface as a bare
+ * EPERM. The stamp gives each removal its own folder, which is also what lets someone
+ * looking in `.trash` tell two of them apart.
+ */
+export async function trashProject(
+  slug: string,
+  expectedMtimeMs: number,
+): Promise<{ trashedTo: string }> {
+  assertSlug(slug);
+  const root = vaultRoot();
+  const dir = projectPath(root, slug);
+
+  /*
+   * Existence is checked before the precondition, not after.
+   *
+   * `mtimeOf` reports 0 for a file that is not there, so on a missing project every
+   * `expectedMtimeMs` except 0 would fail as a *conflict* - telling the user their project
+   * changed on disk when the truth is that it is gone. Wrong diagnosis, and the one that
+   * sends someone looking for a lost update that never happened.
+   */
+  const stat = await fsp.stat(dir).catch(() => null);
+  if (!stat?.isDirectory()) {
+    throw new VaultError("not_found", `No project called "${slug}"`);
+  }
+
+  /*
+   * The precondition guards `project.md` - the same file every other write to this project
+   * is serialised against.
+   *
+   * It is not protecting those bytes, which are about to move wholesale. It is protecting
+   * the user's *reading* of them: the confirmation dialog names a project and says what is
+   * in it, and if that changed after the page was loaded then the thing being confirmed is
+   * not the thing on disk. An AI apply landing in the gap is exactly that case.
+   */
+  await assertUnchanged(projectPath(root, slug, PROJECT_FILE), expectedMtimeMs);
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const dest = containedPath(root, TRASH_DIR, `${slug}-${stamp}`);
+  await fsp.mkdir(path.dirname(dest), { recursive: true });
+
+  /*
+   * The same Windows retry as `atomicWrite`, for the same reason: a handle held on any
+   * file inside the directory - Obsidian with a note open, antivirus, a search indexer -
+   * fails the rename with EPERM or EBUSY for a few milliseconds. That is normal, not an
+   * error. A directory rename is more exposed to it than a file rename, not less, because
+   * any one of the files inside is enough to block it.
+   */
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await fsp.rename(dir, dest);
+      break;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code ?? "";
+      if (attempt >= 4 || !TRANSIENT_WRITE_ERRORS.has(code)) throw e;
+      await delay(10 * (attempt + 1));
+    }
+  }
+
+  // `invalidate()` with no slug, deliberately. The link graph spans the whole vault, and
+  // every backlink pointing into this project has just become a dangling one.
+  invalidate();
+
+  return { trashedTo: path.relative(root, dest).split(path.sep).join("/") };
 }
 
 /**
@@ -823,7 +938,10 @@ export async function createCard(
     updated: now,
   };
 
-  const body = "\n\n## Acceptance criteria\n\n- [ ] \n";
+  // The heading and nothing under it. A blank `- [ ] ` used to be seeded here so the section
+  // read as a list; it counted as a criterion, so a new card said "0 of 1 done" on the board
+  // and showed an "(empty)" checkbox in the drawer. The drawer adds the first real one.
+  const body = "\n\n## Acceptance criteria\n";
   await atomicWrite(file, buildDoc(meta as unknown as Record<string, unknown>, body));
   invalidate(slug);
 
@@ -839,7 +957,7 @@ export async function trashCard(slug: string, id: number): Promise<void> {
   if (!name) throw new VaultError("not_found", `No card ${id} in ${slug}`);
 
   const from = projectPath(root, slug, CARDS_DIR, assertCardFilename(name));
-  const to = projectPath(root, slug, ".trash", name);
+  const to = projectPath(root, slug, TRASH_DIR, name);
 
   await fsp.mkdir(path.dirname(to), { recursive: true });
   await fsp.rename(from, to);
@@ -1622,7 +1740,7 @@ export async function getBacklinks(node: NodeId): Promise<ResolvedBacklink[]> {
       from: b.from,
       line: b.line,
       label: `${projectName} · ${card?.title ?? `card ${cardId}`}`,
-      href: `/p/${slug}/board`,
+      href: cardHref(slug, cardId),
     };
   });
 }
@@ -1646,13 +1764,53 @@ export interface SearchHit {
  * to serve thousands of cards, the answer is a derived SQLite index built *from* the
  * markdown — not a change to where the truth lives.
  */
+/**
+ * A query that is just a card number: `7`, `#7`, `# 7`.
+ *
+ * Six digits is far past any plausible card count and keeps a stray year or amount from
+ * being read as a ticket - `2026` finds cards 2026 in some project, which is nothing, and
+ * then falls through to the text search that was actually wanted.
+ */
+const TICKET_QUERY = /^#\s*(\d{1,6})$|^(\d{1,6})$/;
+
 export async function searchVault(query: string, limit = 60): Promise<SearchHit[]> {
-  const needle = query.trim().toLowerCase();
-  if (needle.length < 2) return [];
+  const raw = query.trim();
+  const needle = raw.toLowerCase();
+
+  /*
+   * Card number first, and the reason it comes before the length guard: a bare `7` is one
+   * character, which the text search rightly refuses as too short to be worth scanning the
+   * vault for - but as a ticket it is exact. The number is what someone writes on a slip of
+   * paper, so it has to be the fastest thing to type back in.
+   *
+   * Answered from the link graph, which already holds every card's id and title and is
+   * cached - so a ticket lookup costs no filesystem read at all.
+   */
+  const hits: SearchHit[] = [];
+  const ticket = TICKET_QUERY.exec(raw);
+  if (ticket) {
+    const id = Number(ticket[1] ?? ticket[2]);
+    const { index } = await getLinkGraph();
+    for (const project of index) {
+      for (const card of project.cards) {
+        if (card.id !== id) continue;
+        hits.push({
+          slug: project.slug,
+          projectName: project.name,
+          where: "Card",
+          line: `#${card.id} · ${card.title}`,
+          href: `/p/${project.slug}/cards/${card.id}`,
+        });
+      }
+    }
+  }
+
+  // A ticket match does not end the search: `#7` is also a string someone may have written
+  // in a brief, and those matches follow the exact ones rather than replacing them.
+  if (needle.length < 2) return hits;
 
   const root = vaultRoot();
   const slugs = (await listProjectSlugs()).filter(isLegalSlug);
-  const hits: SearchHit[] = [];
 
   for (const slug of slugs) {
     if (hits.length >= limit) break;
@@ -1694,7 +1852,9 @@ export async function searchVault(query: string, limit = 60): Promise<SearchHit[
       if (!raw) continue;
       const parsed = CardMetaSchema.safeParse(readData(raw));
       const title = parsed.success ? parsed.data.title : name;
-      scan(`${title}\n${split(raw).body}`, `Card: ${title}`, `/p/${slug}/board`);
+      // A card has a page of its own now; an unparseable one can only point at the board.
+      const href = parsed.success ? cardHref(slug, parsed.data.id) : `/p/${slug}/board`;
+      scan(`${title}\n${split(raw).body}`, `Card: ${title}`, href);
     }
   }
 

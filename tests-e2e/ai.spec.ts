@@ -466,7 +466,237 @@ Thin description.
   const raw = await fsp.readFile(path.join(T_CARDS, "0001-existing.md"), "utf8");
   expect(raw).toContain("Expanded by the fixture engine");
   expect(raw).toContain("## Acceptance criteria");
+  // The description is the one thing an enhance replaces - and the review showed it first.
   expect(raw).not.toContain("Thin description.");
+
+  await resetTheta();
+});
+
+test("enhancing keeps hand-written criteria and their ticks", async ({ page }) => {
+  await resetTheta();
+
+  await fsp.writeFile(
+    path.join(T_CARDS, "0001-existing.md"),
+    `---
+id: 1
+title: Existing card
+column: Intake
+phase: 1
+priority: P3
+size: S
+confidence: 0.3
+blocked: false
+order: 100
+created: 2026-08-01
+updated: 2026-08-01
+---
+
+Thin description.
+
+## Acceptance criteria
+
+- [x] Hand-written and ticked
+- [ ] Hand-written and open
+
+Notes after the list.
+`,
+    "utf8",
+  );
+
+  await page.goto(`/p/${T_SLUG}/board`);
+  await page.getByTestId("card-1").click();
+  await expect(page.getByTestId("card-detail")).toBeVisible();
+  await page.getByTestId("enhance").click();
+  await expect(page.getByTestId("proposal-review")).toBeVisible({ timeout: 25_000 });
+
+  /*
+   * The fixture echoes the first criterion with a trailing full stop and omits the second,
+   * so the review has to show all three merge outcomes: kept (the user's spelling wins),
+   * kept though the model left it out, and added. And the description it will replace.
+   */
+  const rows = page.getByTestId("proposal-criterion");
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toHaveAttribute("data-status", "kept");
+  await expect(rows.nth(0)).toHaveAttribute("data-checked", "true");
+  await expect(rows.nth(1)).toHaveAttribute("data-status", "kept-omitted");
+  await expect(rows.nth(2)).toHaveAttribute("data-status", "added");
+  await expect(page.getByTestId("update-description")).toContainText("Thin description.");
+
+  await page.getByTestId("apply").click();
+  await expect(page.getByTestId("apply-result")).toBeVisible({ timeout: 20_000 });
+
+  const raw = await fsp.readFile(path.join(T_CARDS, "0001-existing.md"), "utf8");
+  expect(raw).toContain(
+    "- [x] Hand-written and ticked\n- [ ] Hand-written and open\n- [ ] The described behaviour is observable end to end\n",
+  );
+  expect(raw).toContain("Notes after the list.");
+  expect(raw.match(/## Acceptance criteria/g)).toHaveLength(1);
+  expect(raw).not.toContain("Thin description.");
+  expect(raw).not.toContain("Hand-written and ticked.");
+
+  await resetTheta();
+});
+
+test("a finished enhancement is offered again when the card is reopened, and never on the brief page", async ({
+  page,
+}) => {
+  await resetTheta();
+  await fsp.writeFile(
+    path.join(T_CARDS, "0001-existing.md"),
+    `---
+id: 1
+title: Existing card
+column: Intake
+phase: 1
+priority: P3
+size: S
+confidence: 0.3
+blocked: false
+order: 100
+created: 2026-08-01
+updated: 2026-08-01
+---
+
+Thin description.
+`,
+    "utf8",
+  );
+
+  await page.goto(`/p/${T_SLUG}/board`);
+  await page.getByTestId("card-1").click();
+  await page.getByTestId("enhance").click();
+  await expect(page.getByTestId("proposal-review")).toBeVisible({ timeout: 25_000 });
+
+  // Close the drawer, reopen the card: the review is back without another run.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("card-detail")).toHaveCount(0);
+  await page.getByTestId("card-1").click();
+  await expect(page.getByTestId("card-detail")).toBeVisible();
+  await expect(page.getByTestId("proposal-review")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("enhance")).toHaveText("Run again");
+  await expect(page.getByTestId("enhance-run")).toHaveCount(1);
+  await expect(page.getByTestId("enhance-run")).toHaveAttribute("data-status", "ready");
+
+  // The brief page does not pick a card's enhancement up as if it were a synthesis.
+  await page.goto(`/p/${T_SLUG}/brief`);
+  await expect(page.getByTestId("ai-panel")).toBeVisible();
+  await expect(page.getByTestId("proposal-review")).toHaveCount(0);
+
+  // Apply from the card, then the history says so and shows the proposal, not an Apply.
+  await page.goto(`/p/${T_SLUG}/board`);
+  await page.getByTestId("card-1").click();
+  await expect(page.getByTestId("proposal-review")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("apply").click();
+  await expect(page.getByTestId("apply-result")).toBeVisible({ timeout: 20_000 });
+  const run = page.getByTestId("enhance-run");
+  await expect(run).toHaveAttribute("data-status", "applied", { timeout: 10_000 });
+  await run.getByTestId("enhance-view").click();
+  const shown = page.getByTestId("enhance-proposal");
+  await expect(shown).toBeVisible();
+  await expect(shown).toContainText("Expanded by the fixture engine");
+  await expect(shown.getByTestId("apply")).toHaveCount(0);
+
+  await resetTheta();
+});
+
+test("a run that was still going when the drawer closed is picked up on reopen", async ({
+  page,
+}) => {
+  await resetTheta();
+  await fsp.writeFile(
+    path.join(T_CARDS, "0001-existing.md"),
+    `---
+id: 1
+title: Existing card
+column: Intake
+phase: 1
+priority: P3
+size: S
+confidence: 0.3
+blocked: false
+order: 100
+created: 2026-08-01
+updated: 2026-08-01
+---
+
+Thin description.
+`,
+    "utf8",
+  );
+
+  await page.goto(`/p/${T_SLUG}/board`);
+  await page.getByTestId("card-1").click();
+  await page.getByTestId("enhance").click();
+  // Leave once the run exists - the first streamed step proves the record is on disk - but
+  // before it finishes. The process keeps going; the drawer forgot.
+  await expect(page.getByTestId("enhance-steps")).toBeVisible({ timeout: 20_000 });
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("card-detail")).toHaveCount(0);
+
+  await page.getByTestId("card-1").click();
+  // Either the run was already ready (seeded at once) or it is watched to its end.
+  await expect(page.getByTestId("proposal-review")).toBeVisible({ timeout: 30_000 });
+
+  await resetTheta();
+});
+
+test("a run record that says running is watched, and the review appears when it turns ready", async ({
+  page,
+}) => {
+  /*
+   * The fixture engine finishes in well under the poll interval, so the case above proves
+   * the seed and not the poll. This one pins the poll: a finished run is rewritten to
+   * "running" on disk, the drawer must show it as in progress with Enhance disabled, and
+   * when the record turns "ready" again the review has to appear without any click.
+   */
+  await resetTheta();
+  await fsp.writeFile(
+    path.join(T_CARDS, "0001-existing.md"),
+    `---
+id: 1
+title: Existing card
+column: Intake
+phase: 1
+priority: P3
+size: S
+confidence: 0.3
+blocked: false
+order: 100
+created: 2026-08-01
+updated: 2026-08-01
+---
+
+Thin description.
+`,
+    "utf8",
+  );
+
+  await page.goto(`/p/${T_SLUG}/board`);
+  await page.getByTestId("card-1").click();
+  await page.getByTestId("enhance").click();
+  await expect(page.getByTestId("proposal-review")).toBeVisible({ timeout: 25_000 });
+  await page.keyboard.press("Escape");
+
+  // Rewind the record to "running", as a server that died mid-run would leave it.
+  const runId = (await fsp.readdir(RUNS)).filter((n) => n.startsWith("run_")).sort().pop();
+  if (!runId) throw new Error("no run recorded");
+  const recordPath = path.join(RUNS, runId, "run.json");
+  const record = JSON.parse(await fsp.readFile(recordPath, "utf8")) as Record<string, unknown>;
+  await fsp.writeFile(
+    recordPath,
+    JSON.stringify({ ...record, status: "running", finishedAt: null, startedAt: new Date().toISOString() }),
+    "utf8",
+  );
+
+  await page.getByTestId("card-1").click();
+  await expect(page.getByTestId("enhance-status")).toHaveText("a run is in progress");
+  await expect(page.getByTestId("enhance")).toBeDisabled();
+  await expect(page.getByTestId("proposal-review")).toHaveCount(0);
+
+  // The run finishes: the poll sees it and offers the review with no click.
+  await fsp.writeFile(recordPath, JSON.stringify(record), "utf8");
+  await expect(page.getByTestId("proposal-review")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("enhance")).toBeEnabled();
 
   await resetTheta();
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { likelihoodLabel } from "@/lib/labels";
 
@@ -10,6 +10,7 @@ import type {
   GroundingReport,
   GroundingResult,
 } from "@/lib/ai/grounding";
+import type { CardUpdateDiff, CriterionRow } from "@/lib/ai/merge";
 import type { Proposal, RunRecord } from "@/lib/ai/types";
 
 interface ProposalPayload {
@@ -18,6 +19,8 @@ interface ProposalPayload {
   proposal?: Proposal;
   grounding?: GroundingReport;
   warnings?: string[];
+  /** Per `update` card (by index): what accepting it does to the card as it is now. */
+  updates?: Record<string, CardUpdateDiff>;
   error?: string;
   raw?: string;
 }
@@ -36,6 +39,16 @@ function selectAll(proposal: Proposal): Selection {
     assumptions: new Set(proposal.assumptions.map((_, i) => i)),
     questions: new Set(proposal.questions.map((_, i) => i)),
   };
+}
+
+/** Everything ticked, except an update for a card that no longer exists. */
+function initialSelection(payload: ProposalPayload): Selection | null {
+  if (!payload.proposal) return null;
+  const selection = selectAll(payload.proposal);
+  for (const [index, diff] of Object.entries(payload.updates ?? {})) {
+    if (diff.missing) selection.cards.delete(Number(index));
+  }
+  return selection;
 }
 
 /**
@@ -60,23 +73,37 @@ export function ProposalReview({
   const [selection, setSelection] = useState<Selection | null>(null);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [applyStatus, setApplyStatus] = useState<number | null>(null);
   const [applied, setApplied] = useState<string | null>(null);
 
+  /*
+   * Loading is a function rather than only an effect because a conflict on apply — a card
+   * edited between review and accept — is answered by reading the proposal again against
+   * the card as it is now, not by retrying the write. The counter drops a stale response.
+   */
+  const loadSeq = useRef(0);
+
+  const fetchProposal = useCallback(async (): Promise<ProposalPayload> => {
+    const params = new URLSearchParams(runId ? { runId } : { slug });
+    const res = await fetch(`/api/ai/proposal?${params.toString()}`);
+    if (!res.ok) {
+      const detail = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(detail.error ?? `Could not load the proposal (${res.status})`);
+    }
+    return (await res.json()) as ProposalPayload;
+  }, [slug, runId]);
+
+  // The open: inline, state set only after the fetch resolves.
   useEffect(() => {
     let cancelled = false;
+    loadSeq.current += 1;
 
     void (async () => {
       try {
-        const params = new URLSearchParams(runId ? { runId } : { slug });
-        const res = await fetch(`/api/ai/proposal?${params.toString()}`);
-        if (!res.ok) {
-          const detail = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(detail.error ?? `Could not load the proposal (${res.status})`);
-        }
-        const payload = (await res.json()) as ProposalPayload;
+        const payload = await fetchProposal();
         if (cancelled) return;
         setData(payload);
-        if (payload.proposal) setSelection(selectAll(payload.proposal));
+        setSelection(initialSelection(payload));
       } catch (e) {
         if (!cancelled) setLoadError((e as Error).message);
       }
@@ -85,7 +112,27 @@ export function ProposalReview({
     return () => {
       cancelled = true;
     };
-  }, [slug, runId]);
+  }, [fetchProposal]);
+
+  /*
+   * The reload after a 409 on apply. Event-driven; the counter drops a stale response. The
+   * proposal is the same run, so the user's ticks are kept - re-selecting everything would
+   * silently undo the blocks they had just rejected.
+   */
+  const load = useCallback(async () => {
+    loadSeq.current += 1;
+    const mine = loadSeq.current;
+    try {
+      const payload = await fetchProposal();
+      if (mine !== loadSeq.current) return;
+      setData(payload);
+      setApplyError(null);
+      setApplyStatus(null);
+      setSelection((prev) => prev ?? initialSelection(payload));
+    } catch (e) {
+      if (mine === loadSeq.current) setLoadError((e as Error).message);
+    }
+  }, [fetchProposal]);
 
   const toggle = useCallback((kind: Kind, index: number) => {
     setSelection((prev) => {
@@ -118,6 +165,15 @@ export function ProposalReview({
     if (!data?.run || !selection) return;
     setApplying(true);
     setApplyError(null);
+    setApplyStatus(null);
+
+    // The baseline every update card was reviewed against. The server refuses an update
+    // without one and 409s if the card has moved since — the review stays a true preview.
+    const baselines = Object.fromEntries(
+      Object.values(data.updates ?? {})
+        .filter((u) => !u.missing)
+        .map((u) => [String(u.cardId), u.mtimeMs]),
+    );
 
     try {
       const res = await fetch("/api/ai/proposal", {
@@ -125,13 +181,19 @@ export function ProposalReview({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           runId: data.run.runId,
-          selection: Object.fromEntries(KINDS.map((k) => [k, [...selection[k]]])),
+          selection: {
+            ...Object.fromEntries(KINDS.map((k) => [k, [...selection[k]]])),
+            // A missing card cannot be updated; the server skips it too, but do not ask.
+            cards: [...selection.cards].filter((i) => !data.updates?.[String(i)]?.missing),
+            baselines,
+          },
         }),
       });
 
       const payload: unknown = await res.json().catch(() => null);
       if (!res.ok) {
         const detail = (payload ?? {}) as { error?: string };
+        setApplyStatus(res.status);
         throw new Error(detail.error ?? `Apply failed (${res.status})`);
       }
 
@@ -243,12 +305,16 @@ export function ProposalReview({
                 <CodeGrounding result={grounding?.code.cards[i]} />
               </div>
               <CodeCitation result={grounding?.code.cards[i]} />
-              {c.acceptance.length > 0 && (
-                <ul className="sub-list body-sm soft">
-                  {c.acceptance.map((a) => (
-                    <li key={a}>{a}</li>
-                  ))}
-                </ul>
+              {c.op === "update" && data.updates?.[String(i)] ? (
+                <UpdateDiff diff={data.updates[String(i)] as CardUpdateDiff} />
+              ) : (
+                c.acceptance.length > 0 && (
+                  <ul className="sub-list body-sm soft">
+                    {c.acceptance.map((a, j) => (
+                      <li key={`${j}-${a}`}>{a}</li>
+                    ))}
+                  </ul>
+                )
               )}
             </Row>
           ))}
@@ -312,6 +378,19 @@ export function ProposalReview({
       {applyError && (
         <div className="notice body-sm" role="alert" data-testid="apply-error">
           {applyError}
+          {applyStatus === 409 && (
+            <>
+              {" "}
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => void load()}
+                data-testid="apply-reload"
+              >
+                Reload the review
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -358,6 +437,98 @@ export function ProposalReview({
   );
 }
 
+/**
+ * What accepting an `update` card does to the card as it is right now.
+ *
+ * This is the before/after the review had been missing: the old code showed only the
+ * proposed acceptance list, never the body it would replace and never which criteria the
+ * user had already written. Computed server-side by the same merge the apply runs, so what
+ * is on screen is what will land. Prose is rendered as text nodes, never as HTML.
+ */
+function UpdateDiff({ diff }: { diff: CardUpdateDiff }) {
+  if (diff.missing) {
+    return (
+      <p className="body-sm faint" data-testid="update-missing">
+        This card no longer exists; nothing will be written for it.
+      </p>
+    );
+  }
+  const report = diff.report;
+  if (!report) return null;
+
+  const kept = report.criteria.filter((c) => c.status !== "added").length;
+  const added = report.criteria.length - kept;
+
+  return (
+    <div className="stack update-diff" style={{ gap: 6 }}>
+      {diff.title && diff.title.before !== diff.title.after && (
+        <p className="body-sm soft" style={{ margin: 0 }} data-testid="update-title">
+          <span className="mono faint">title </span>
+          <s className="faint">{diff.title.before}</s> → {diff.title.after}
+        </p>
+      )}
+
+      <div data-testid="update-description">
+        {report.description.changed ? (
+          <>
+            <p className="body-sm" style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+              {report.description.after}
+            </p>
+            <p className="body-sm faint" style={{ margin: "4px 0 0", whiteSpace: "pre-wrap" }}>
+              <span className="mono">replaces: </span>
+              {report.description.before || "(no description)"}
+            </p>
+          </>
+        ) : (
+          <p className="body-sm faint" style={{ margin: 0 }}>
+            description unchanged
+          </p>
+        )}
+      </div>
+
+      {report.bodyTruncatedAtHeading && (
+        <p className="body-sm faint" style={{ margin: 0 }}>
+          The model put the checklist inside the description; it was cut there, and only the
+          list below counts.
+        </p>
+      )}
+
+      {report.criteria.length > 0 && (
+        <>
+          <p className="body-sm faint" style={{ margin: 0 }} data-testid="update-summary">
+            Keeps {kept} you wrote, adds {added}.
+          </p>
+          <ul className="sub-list body-sm soft">
+            {report.criteria.map((c, j) => (
+              <CriterionLine key={`${j}-${c.text}`} row={c} />
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+function CriterionLine({ row }: { row: CriterionRow }) {
+  const chip =
+    row.status === "added"
+      ? { className: "chip chip-active", label: "added" }
+      : row.status === "kept-omitted"
+        ? { className: "chip chip-paused", label: "kept — not in the model's list" }
+        : { className: "chip chip-done", label: "kept" };
+
+  return (
+    <li
+      data-testid="proposal-criterion"
+      data-status={row.status}
+      data-checked={row.checked ? "true" : "false"}
+    >
+      <span className="mono faint">{row.checked ? "[x] " : "[ ] "}</span>
+      {row.text} <span className={chip.className}>{chip.label}</span>
+    </li>
+  );
+}
+
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="raised" style={{ padding: 12 }}>
@@ -399,7 +570,7 @@ function Row({
  * situations with three different fixes. Shown for a healthy run too, because "read 6
  * excerpts" is the sentence that makes the citations below make sense.
  */
-function RepoContextNote({ run }: { run: RunRecord }) {
+export function RepoContextNote({ run }: { run: RunRecord }) {
   const ctx = run.repoContext;
   if (!ctx) return null;
 

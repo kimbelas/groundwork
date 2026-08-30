@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { GlobalSearch } from "@/components/search/GlobalSearch";
+
 /**
  * App shell with a rail that becomes a drawer on small screens.
  *
@@ -33,6 +35,12 @@ export function RailShell({ rail, children }: { rail: React.ReactNode; children:
         <Link href="/" className="topbar-brand">
           Groundwork
         </Link>
+        {/*
+          The bar exists on every width now, not only where the rail collapses. On desktop the
+          menu button and the brand are hidden by CSS — the rail already carries both — and
+          this is all that is left of it, aligned with the pane beside it.
+        */}
+        <GlobalSearch />
       </header>
 
       <div className="shell">

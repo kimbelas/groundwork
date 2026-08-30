@@ -1,9 +1,11 @@
 import Link from "next/link";
 
+import { DeleteProjectRow } from "@/components/project/DeleteProjectRow";
 import { NewProject } from "@/components/project/NewProject";
+import { Badge } from "@/components/ui/Badge";
 import { Chip } from "@/components/ui/Chip";
 import { healthTone, progress, relativeTime, stageTone } from "@/lib/format";
-import { healthLabel, stageLabel } from "@/lib/labels";
+import { healthLabel, openQuestionsLabel, stageLabel } from "@/lib/labels";
 import { nextAction } from "@/lib/nextAction";
 import { listProjects } from "@/lib/vault";
 
@@ -82,6 +84,11 @@ export default async function DashboardPage({
                 <th scope="col">Open</th>
                 <th scope="col">Next action</th>
                 <th scope="col">Touched</th>
+                <th scope="col">
+                  {/* Named for screen readers; the column head carries no visible word
+                      because the only thing under it is one destructive verb. */}
+                  <span className="visually-hidden">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -95,6 +102,19 @@ export default async function DashboardPage({
                       <td colSpan={6} data-label="Status">
                         <span className="chip chip-blocked">unreadable</span>{" "}
                         <span className="body-sm soft">{entry.error}</span>
+                      </td>
+                      {/*
+                        A project that will not load is the one a user most wants rid of, so
+                        the row that says "unreadable" is the last place the delete should be
+                        missing. It carries a baseline like any other row - `0` where there
+                        was no project.md to read, which is what an absent file matches.
+                      */}
+                      <td data-label="Actions">
+                        <DeleteProjectRow
+                          slug={entry.slug}
+                          name={entry.slug}
+                          mtimeMs={entry.mtimeMs}
+                        />
                       </td>
                     </tr>
                   );
@@ -127,11 +147,26 @@ export default async function DashboardPage({
                     <td className="num" data-label="Phase">
                       {total === 0 ? "—" : `${done}/${total}`}
                     </td>
-                    <td className="num" data-label="Open">{summary.openQuestions || "—"}</td>
+                    <td className="num" data-label="Open">
+                      {summary.openQuestions > 0 ? (
+                        <Badge label={openQuestionsLabel(summary.openQuestions)}>
+                          {summary.openQuestions}
+                        </Badge>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td data-label="Next action">
                       <Link href={`/p/${entry.slug}/${action.view}`}>{action.text}</Link>
                     </td>
                     <td className="num" data-label="Touched">{relativeTime(summary.lastTouchedMs, now)}</td>
+                    <td data-label="Actions">
+                      <DeleteProjectRow
+                        slug={entry.slug}
+                        name={summary.meta.name}
+                        mtimeMs={entry.mtimeMs}
+                      />
+                    </td>
                   </tr>
                 );
               })}

@@ -29,3 +29,7 @@ blob-report/
 !.env.example
 .DS_Store
 .groundwork-e2e/
+
+# Whole projects the delete spec moves aside. The spec clears its own, but a killed
+# run leaves them behind and they are not fixtures anyone should commit.
+/tests-e2e/fixture-vault/.trash/

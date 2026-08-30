@@ -18,7 +18,7 @@ import { assertSlug } from "@/lib/paths";
 export const dynamic = "force-dynamic";
 
 const Query = z.object({
-  job: z.enum(["synthesize", "enhance-card", "critique"]),
+  job: z.enum(["synthesize", "enhance-card", "critique", "suggest-answers"]),
   slug: z.string().min(1).max(64),
   cardId: z.coerce.number().int().positive().optional(),
 });
@@ -91,6 +91,8 @@ export async function GET(req: Request): Promise<Response> {
       status: "running",
       startedAt: new Date().toISOString(),
       finishedAt: null,
+      // So the card can find its own enhancement again; see RunRecord.cardId.
+      ...(job.kind === "enhance-card" ? { cardId: job.cardId } : {}),
     });
 
     const encoder = new TextEncoder();

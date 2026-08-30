@@ -129,9 +129,15 @@ test.describe("search", () => {
     await expect(page.getByTestId("search-empty")).toBeVisible();
   });
 
-  test("asks for more than one character", async ({ page }) => {
+  test("asks for more than one character, and says what the exception is", async ({ page }) => {
+    /*
+     * A single letter is still refused — it would match nearly every line in the vault. A
+     * single digit is not, because it is a card number answered from a cached index, and the
+     * hint has to say so or nobody discovers it.
+     */
     await page.goto("/search?q=a");
-    await expect(page.getByText("Type at least two characters.")).toBeVisible();
+    await expect(page.getByText(/Type at least two characters/)).toBeVisible();
+    await expect(page.getByText(/card number/)).toBeVisible();
   });
 
   test("the query lives in the URL so a result set is linkable", async ({ page }) => {

@@ -244,6 +244,14 @@ describe("prepareRun — the guard is actually installed", () => {
         prepareRun({ kind: "enhance-card", slug: escaping, cardId: 1 }, RUN_ID, process.cwd()),
       ),
     ).toBe("escapes_root");
+    /*
+     * The newest kind, held to the same guard as the rest. A job added later is exactly how
+     * this check quietly stops covering everything: `instructionFor` gains a case, the
+     * exhaustiveness error is fixed, and nothing says the new branch was ever scoped.
+     */
+    expect(
+      code(() => prepareRun({ kind: "suggest-answers", slug: escaping }, RUN_ID, process.cwd())),
+    ).toBe("escapes_root");
   });
 });
 

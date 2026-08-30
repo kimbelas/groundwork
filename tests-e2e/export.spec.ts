@@ -38,7 +38,7 @@ function typed(dir: string): string {
 }
 
 test("previews first, writes nothing, then writes both files", async ({ page }) => {
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await page.getByTestId("export-open").click();
   const drawer = page.getByTestId("export-drawer");
@@ -90,7 +90,7 @@ test("shows what an overwrite would destroy, and asks", async ({ page }) => {
     "utf8",
   );
 
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await page.getByTestId("export-open").click();
 
   const drawer = page.getByTestId("export-drawer");
@@ -131,7 +131,7 @@ test("Escape closes the confirmation and leaves the drawer open", async ({ page 
   // The fourth bug of this shape in this codebase was two layers closing on one Escape.
   await fsp.writeFile(path.join(target, "TASKS.md"), "old tasks\n", "utf8");
 
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await page.getByTestId("export-open").click();
 
   const drawer = page.getByTestId("export-drawer");
@@ -157,7 +157,7 @@ test("refuses a file that appeared between the preview and the write", async ({ 
    * something has created a CLAUDE.md. Without a precondition their "nothing to overwrite"
    * decision destroys a file they were never shown.
    */
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await page.getByTestId("export-open").click();
 
   const drawer = page.getByTestId("export-drawer");
@@ -188,7 +188,7 @@ test("refuses a file that appeared between the preview and the write", async ({ 
 test("refuses a folder that does not exist, and does not create it", async ({ page }) => {
   const missing = path.join(scratch, "not-here", "deeper");
 
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await page.getByTestId("export-open").click();
 
   const drawer = page.getByTestId("export-drawer");
@@ -203,7 +203,7 @@ test("refuses a folder that does not exist, and does not create it", async ({ pa
 test("refuses to export into the vault", async ({ page }) => {
   const vault = path.resolve(import.meta.dirname, "fixture-vault");
 
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await page.getByTestId("export-open").click();
 
   const drawer = page.getByTestId("export-drawer");

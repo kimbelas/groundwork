@@ -84,14 +84,14 @@ test.beforeEach(async () => {
 
 test("the index panel appears only once a repo is connected", async ({ page }) => {
   await fsp.writeFile(FILE, frontmatter(null), "utf8");
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await expect(page.getByTestId("repo-panel")).toBeVisible();
   await expect(page.getByTestId("index-panel")).toHaveCount(0);
 });
 
 test("offers to build when a repo is connected but nothing is indexed", async ({ page }) => {
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await expect(page.getByTestId("index-panel")).toBeVisible();
   await expect(page.getByRole("button", { name: "Build index" })).toBeVisible();
@@ -101,7 +101,7 @@ test("offers to build when a repo is connected but nothing is indexed", async ({
 test("previews the work before committing to it", async ({ page }) => {
   // The whole point of a two-step control: embedding is the one slow operation here, and a
   // button that silently starts one looks broken.
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await page.getByRole("button", { name: "Check for changes" }).click();
   const preview = page.getByTestId("index-preview");
@@ -111,7 +111,7 @@ test("previews the work before committing to it", async ({ page }) => {
 });
 
 test("builds the index and reports what it contains", async ({ page }) => {
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await page.getByRole("button", { name: "Build index" }).click();
 
@@ -130,7 +130,7 @@ test("a second check finds nothing to do", async ({ page }) => {
    * above and this check, so there is no work — which is the entire reason the index layer
    * hashes files rather than re-embedding everything.
    */
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await page.getByRole("button", { name: "Check for changes" }).click();
   await expect(page.getByTestId("index-preview")).toContainText("up to date", {
@@ -145,7 +145,7 @@ test("an edit in the repo shows up as work to do", async ({ page }) => {
     "utf8",
   );
 
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
   await page.getByRole("button", { name: "Check for changes" }).click();
 
   /*
@@ -162,7 +162,7 @@ test("an edit in the repo shows up as work to do", async ({ page }) => {
 
 test("clears the index, and offers to build again", async ({ page }) => {
   // Derived data: clearing is always safe, and rebuilding is the fix for anything wrong.
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   await page.getByRole("button", { name: "Clear" }).click();
 
@@ -178,7 +178,7 @@ test("reports a repo that has gone away instead of failing silently", async ({ p
   await fsp.writeFile(FILE, frontmatter(gone.split(path.sep).join("/")), "utf8");
   await fsp.rm(gone, { recursive: true, force: true });
 
-  await page.goto(`/p/${SLUG}/brief`);
+  await page.goto(`/p/${SLUG}/settings`);
 
   // The repo panel says so, and the index controls are not offered for a repo that is not
   // there — a build could only fail.

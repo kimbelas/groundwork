@@ -257,7 +257,16 @@ test("creating a card writes a new file with the next id", async ({ page }) => {
   expect(raw).toContain("column: Shaping");
   expect(raw).toContain("## Acceptance criteria");
 
+  // The heading and nothing under it: a seeded blank criterion used to make a brand-new
+  // card read "0 of 1 done" on the board and show an "(empty)" checkbox in the drawer.
+  expect(raw).not.toContain("- [ ]");
   await expect(page.getByTestId("card-4")).toBeVisible();
+  await expect(page.getByTestId("card-4")).not.toContainText("done");
+
+  await page.getByTestId("card-4").click();
+  const detail = page.getByTestId("card-detail");
+  await expect(detail.getByTestId("criteria")).toContainText("None yet");
+  await expect(detail.getByLabel("New criterion")).toBeVisible();
 });
 
 test("deleting a card moves it to .trash rather than unlinking", async ({ page }) => {
@@ -291,4 +300,129 @@ test("a stale move is refused and the card returns to where it was", async ({ pa
   await expect(page.getByTestId("board-error")).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId("card-1")).toHaveAttribute("data-column", "Intake");
   expect(await readCard("0001-alpha.md")).toContain("column: Intake");
+});
+
+// ============================================================
+// Criteria the user writes
+// ============================================================
+
+async function openAlpha(page: import("@playwright/test").Page) {
+  await page.goto(`/p/${SLUG}/board`);
+  await page.getByTestId("card-1").click();
+  const detail = page.getByTestId("card-detail");
+  await expect(detail).toBeVisible();
+  await expect(detail).toContainText("First criterion");
+  return detail;
+}
+
+test("adding a criterion writes one line under the list and nothing else", async ({ page }) => {
+  const detail = await openAlpha(page);
+  const before = await snapshot();
+
+  await detail.getByLabel("New criterion").fill("Third criterion");
+  await page.keyboard.press("Enter");
+
+  await expect(async () => {
+    expect(await readCard("0001-alpha.md")).toContain(
+      "- [ ] First criterion\n- [x] Second criterion\n- [ ] Third criterion",
+    );
+  }).toPass({ timeout: 10_000 });
+
+  const raw = await readCard("0001-alpha.md");
+  expect(raw).toContain("Description for Alpha.");
+  expect(changed(before, await snapshot())).toEqual(["0001-alpha.md"]);
+
+  // The field is empty and ready for the next one; the new row is on screen.
+  await expect(detail.getByLabel("New criterion")).toHaveValue("");
+  await expect(detail.getByTestId("criterion-2")).toContainText("Third criterion");
+});
+
+test("editing a criterion changes only its text", async ({ page }) => {
+  const detail = await openAlpha(page);
+
+  await detail.getByTestId("criterion-edit-0").click();
+  const input = detail.getByTestId("criterion-input");
+  await expect(input).toBeFocused();
+  await input.fill("Renamed criterion");
+  await page.keyboard.press("Enter");
+
+  await expect(async () => {
+    expect(await readCard("0001-alpha.md")).toContain("- [ ] Renamed criterion\n- [x] Second criterion");
+  }).toPass({ timeout: 10_000 });
+  expect(await readCard("0001-alpha.md")).not.toContain("First criterion");
+});
+
+test("removing a criterion drops its line and keeps the heading", async ({ page }) => {
+  const detail = await openAlpha(page);
+
+  await detail.getByTestId("criterion-edit-0").click();
+  await detail.getByTestId("criterion-remove").click();
+
+  await expect(async () => {
+    expect(await readCard("0001-alpha.md")).not.toContain("First criterion");
+  }).toPass({ timeout: 10_000 });
+  const raw = await readCard("0001-alpha.md");
+  expect(raw).toContain("## Acceptance criteria");
+  expect(raw).toContain("- [x] Second criterion");
+  await expect(detail.getByTestId("criteria-list").getByRole("checkbox")).toHaveCount(1);
+});
+
+test("moving a criterion swaps two lines and nothing more", async ({ page }) => {
+  const detail = await openAlpha(page);
+  const before = await snapshot();
+
+  await detail.getByTestId("criterion-down-0").click();
+
+  await expect(async () => {
+    expect(await readCard("0001-alpha.md")).toContain("- [x] Second criterion\n- [ ] First criterion");
+  }).toPass({ timeout: 10_000 });
+  expect(changed(before, await snapshot())).toEqual(["0001-alpha.md"]);
+  await expect(detail.getByTestId("criterion-0")).toContainText("Second criterion");
+});
+
+test("two edits in quick succession both land, in order", async ({ page }) => {
+  const detail = await openAlpha(page);
+
+  // Add, then move the new row up before the add has been confirmed. The second write has to
+  // carry the mtime the first returns; a shared stale baseline would refuse it as a conflict.
+  await detail.getByLabel("New criterion").fill("Third criterion");
+  await page.keyboard.press("Enter");
+  await detail.getByTestId("criterion-up-2").click();
+
+  await expect(async () => {
+    expect(await readCard("0001-alpha.md")).toContain(
+      "- [ ] First criterion\n- [ ] Third criterion\n- [x] Second criterion",
+    );
+  }).toPass({ timeout: 10_000 });
+  await expect(detail.getByTestId("detail-error")).toHaveCount(0);
+});
+
+test("a criterion edit against a card that changed on disk is refused, and reload catches up", async ({
+  page,
+}) => {
+  const detail = await openAlpha(page);
+
+  // Someone else writes the card between load and edit.
+  const onDisk = card(1, "Alpha", "Intake", "P1", 100).replace(
+    "- [ ] First criterion",
+    "- [ ] From disk",
+  );
+  await fsp.writeFile(path.join(CARDS, "0001-alpha.md"), onDisk, "utf8");
+
+  await detail.getByTestId("criterion-down-0").click();
+
+  const notice = detail.getByTestId("detail-error");
+  await expect(notice).toBeVisible({ timeout: 10_000 });
+  await expect(notice).toContainText("changed on disk");
+  expect(await readCard("0001-alpha.md")).toBe(onDisk);
+
+  await detail.getByTestId("detail-reload").click();
+  await expect(detail).toContainText("From disk");
+  await expect(detail.getByTestId("detail-error")).toHaveCount(0);
+
+  // And writing works again against the reloaded baseline.
+  await detail.getByTestId("criterion-down-0").click();
+  await expect(async () => {
+    expect(await readCard("0001-alpha.md")).toContain("- [x] Second criterion\n- [ ] From disk");
+  }).toPass({ timeout: 10_000 });
 });

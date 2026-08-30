@@ -19,7 +19,7 @@ export default async function LogPage({ params }: { params: Promise<{ slug: stri
   ]);
 
   return (
-    <div className="stack" style={{ gap: 30, maxWidth: 760 }}>
+    <div className="page-blocks">
       <DecisionLog slug={slug} entries={parseLog(log)} />
       <hr className="rule rule-strong" />
       <RiskRegister

@@ -3,7 +3,15 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 
 import { VaultError } from "./errors";
-import { ProposalSchema, RunRecordSchema, type Proposal, type RunRecord } from "./ai/types";
+import {
+  ProposalSchema,
+  RunRecordSchema,
+  SuggestionsSchema,
+  type AiJobKind,
+  type Proposal,
+  type RunRecord,
+  type Suggestions,
+} from "./ai/types";
 
 /**
  * Storage for AI runs, under `.groundwork/runs/<runId>/`.
@@ -136,6 +144,56 @@ export async function listRuns(slug?: string): Promise<RunRecord[]> {
   return out;
 }
 
+/** Which finished-but-unapplied proposal a surface may pick up again. */
+export type PendingScope =
+  | { job: AiJobKind[] }
+  | { job: "enhance-card"; cardId: number };
+
+/**
+ * The ONE way a surface finds a proposal to offer again.
+ *
+ * It used to be `listRuns(slug).find(ready && !applied)` in two places, with no job filter -
+ * so a finished card enhancement surfaced on the brief page as if it were a synthesis. The
+ * brief page asks for `{ job: ["synthesize", "critique"] }`; a card asks for its own
+ * enhance runs by id. Newest first, because `listRuns` is.
+ */
+export async function pendingRunFor(slug: string, scope: PendingScope): Promise<RunRecord | null> {
+  const runs = await listRuns(slug);
+  const inScope = (r: RunRecord): boolean =>
+    "cardId" in scope
+      ? r.job === "enhance-card" && r.cardId === scope.cardId
+      : scope.job.includes(r.job);
+  return runs.find((r) => r.status === "ready" && !r.appliedAt && inScope(r)) ?? null;
+}
+
+/**
+ * The run that is still working, if there is one.
+ *
+ * Deliberately NOT folded into `pendingRunFor`. That function answers "is there a proposal
+ * to offer again" and is `ready`-only by contract; letting a `running` record through it
+ * would seed a review with a proposal that does not exist yet - the same class of bug as
+ * the job-agnostic `find`s it was written to replace. This answers a different question,
+ * "is this project busy", and the two are read together.
+ *
+ * Why a surface needs it: the run outlives the response that started it, by design. So a
+ * tab switch unmounts the panel, the stream is aborted, and the work carries on with
+ * nothing on screen saying so. Coming back, `pendingRunFor` returns null - the run is not
+ * ready - and the buttons re-enable over a project that is still locked. This is what lets
+ * a page rediscover the run it lost.
+ *
+ * A crashed process leaves a stale `running` record behind. Recovering from that is the
+ * lock's thirty-minute staleness rule, not this function's job.
+ */
+export async function activeRunFor(slug: string, jobs: AiJobKind[]): Promise<RunRecord | null> {
+  const runs = await listRuns(slug);
+  return runs.find((r) => r.status === "running" && jobs.includes(r.job)) ?? null;
+}
+
+/** Every run recorded against one card, newest first. */
+export async function listCardRuns(slug: string, cardId: number): Promise<RunRecord[]> {
+  return (await listRuns(slug)).filter((r) => r.job === "enhance-card" && r.cardId === cardId);
+}
+
 export interface ProposalReadResult {
   ok: boolean;
   proposal?: Proposal;
@@ -180,6 +238,58 @@ export async function readProposal(runId: string): Promise<ProposalReadResult> {
   }
 
   return { ok: true, proposal: parsed.data };
+}
+
+
+export interface SuggestionsReadResult {
+  ok: boolean;
+  suggestions?: Suggestions;
+  /** Raw text, surfaced when validation fails. Nothing is ever partially offered. */
+  raw?: string;
+  error?: string;
+}
+
+/**
+ * Read and validate a `suggest-answers` run's output.
+ *
+ * The same file as `readProposal` — a run has one output path, and the job kind on the run
+ * record is what says which shape to expect. Two files would mean two ways for a run to be
+ * half-finished.
+ *
+ * Malformed output is reported with its raw text rather than coerced. The stake is lower
+ * than a proposal — nothing here is written to the vault, the user still clicks — but a
+ * silently dropped option is a suggestion the user never knew they were not shown.
+ */
+export async function readSuggestions(runId: string): Promise<SuggestionsReadResult> {
+  const { proposal: file } = runPaths(runId);
+
+  let raw: string;
+  try {
+    raw = await fsp.readFile(file, "utf8");
+  } catch {
+    return { ok: false, error: "The run produced no output" };
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch (e) {
+    return { ok: false, raw, error: `The output is not valid JSON: ${(e as Error).message}` };
+  }
+
+  const parsed = SuggestionsSchema.safeParse(json);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      raw,
+      error: parsed.error.issues
+        .slice(0, 6)
+        .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+        .join("; "),
+    };
+  }
+
+  return { ok: true, suggestions: parsed.data };
 }
 
 export async function writeProposal(runId: string, proposal: unknown): Promise<void> {

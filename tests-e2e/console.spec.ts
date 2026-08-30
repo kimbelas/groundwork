@@ -16,6 +16,9 @@ const PAGES = [
   "/p/eta-board/board",
   "/p/alpha-portal/roadmap",
   "/p/gamma-questions/questions",
+  "/p/nu-repo-link/settings",
+  "/p/rho-card-page/cards/1",
+  "/settings",
 ];
 
 /** Dev-only noise that says nothing about our markup. */

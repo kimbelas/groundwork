@@ -7,6 +7,8 @@ Everything is markdown with YAML frontmatter. The vault is the database. If the 
 ```
 vault/                                  its own git repo
   .gitignore                            ignores .snapshots/ and .trash/
+  .trash/
+    quick-site-2026-08-29T09-12-04-731Z/  a deleted project, whole
   portal-rebuild/
     project.md                          frontmatter = metadata, body = the Brief
     cards/
@@ -25,6 +27,8 @@ vault/                                  its own git repo
 ```
 
 Dotfolders inside a project are ignored by the indexer, so snapshots and trash never show up as content. They are git-ignored as well: history already holds every previous state, so committing snapshots would store the same bytes twice.
+
+The vault root has a `.trash/` of its own, holding whole deleted projects. It needs no filtering rule: `listProjectSlugs` already skips directories beginning with `.` or `_`, so a project that lands there leaves the rail, the dashboard and the link graph at once. The stamped folder name is what keeps two deletions of the same slug apart - a plain `<slug>/` would merge them silently on POSIX and fail with EPERM on Windows, where a rename cannot replace an existing directory. Recovery is manual and deliberately so: move the folder out and rename it to its slug.
 
 ## One write rule
 
@@ -104,6 +108,8 @@ billing service the front end talks to.
 ```
 
 Filename is `id` zero-padded to four digits plus a slug of the title. Renaming a card's title does not rename the file — the `id` is the identity.
+
+**Criteria are edited line by line.** `lib/checklist.ts` adds, renames, removes and reorders task-list items by operating on `split("\n")` positions: a rename rewrites one line's text, a removal splices one element, a move swaps two lines' content, and an addition inserts one line after the last item (cloning its marker and indentation) or, when the card has no section at all, appends one at the very end — the only insertion that leaves every existing byte where it was. A line's `\r` belongs to its position, so a mixed-ending file cannot have one migrate. A new card carries the heading and no items; the first criterion is written in the drawer or by an accepted proposal. Typed criteria are capped at 400 characters to match the proposal schema — a longer line hand-written in Obsidian is fine on disk but would fail validation if a model echoed it back, and the app does not widen the schema to hide that.
 
 **Columns are declared once**, in `project.md`. Membership lives in each card's `column`. There is no separate board file to fall out of sync.
 

@@ -92,7 +92,18 @@ function reject(message: string): never {
  */
 export function normalizeRepoPath(input: unknown): string {
   if (typeof input !== "string") reject("A repository path must be a string.");
-  const trimmed = input.trim();
+
+  /*
+   * Surrounding quotes are stripped before anything else.
+   *
+   * Windows Explorer's "Copy as path" - the one gesture that hands someone an absolute
+   * path without typing it - produces `"C:\\Users\\me\\repo"`, quotes included. Pasting that
+   * failed the absolute-path check with a message about relative paths, which is true of
+   * the string and useless to the person reading it. Only a matched pair is removed, and
+   * only from the ends: a quote anywhere else is part of a filename, however unwise.
+   */
+  const unquoted = input.trim().replace(/^"(.*)"$/s, "$1").replace(/^'(.*)'$/s, "$1");
+  const trimmed = unquoted.trim();
   if (trimmed.length === 0) reject("A repository path cannot be empty.");
 
   // A NUL truncates the path at the syscall layer, so a validated prefix could resolve

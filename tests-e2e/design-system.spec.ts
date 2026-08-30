@@ -160,6 +160,11 @@ const PAGES = [
   { path: "/p/kappa-roadmap/roadmap", ready: "track" as const },
   { path: "/p/kappa-roadmap/log", ready: "log" as const },
   { path: "/p/gamma-questions/questions", ready: "questions" as const },
+  // Repository, export and delete: three panels of controls that were never audited as a set.
+  { path: "/p/nu-repo-link/settings", ready: "repo" as const },
+  // The card page: wait for the editor's fetch, or its selects and buttons go unmeasured.
+  { path: "/p/rho-card-page/cards/1", ready: "card" as const },
+  { path: "/settings", ready: "settings" as const },
 ];
 
 async function waitReady(
@@ -171,6 +176,9 @@ async function waitReady(
   else if (ready === "board") await expect(page.getByTestId("board")).toBeVisible();
   else if (ready === "track") await expect(page.getByTestId("phase-track")).toBeVisible();
   else if (ready === "log") await expect(page.getByTestId("decision-log")).toBeVisible();
+  else if (ready === "card") await expect(page.getByTestId("criteria")).toBeVisible();
+  else if (ready === "settings") await expect(page.getByTestId("account-status")).toBeVisible();
+  else if (ready === "repo") await expect(page.getByTestId("repo-panel")).toBeVisible();
   else await expect(page.getByTestId("questions-list")).toBeVisible();
 }
 
@@ -237,6 +245,20 @@ test.describe("typography", () => {
     expect(body.toLowerCase()).toContain("instrument");
   });
 
+  test("the brief editor renders in the sans, not CodeMirror's monospace", async ({ page }) => {
+    // CodeMirror's base theme sets `font-family: monospace` on .cm-scroller and injects it
+    // at runtime, after globals.css. A rule of equal specificity loses to it, and the brief
+    // rendered in Courier New for several revisions while the stylesheet said Instrument
+    // Sans. The body check above cannot see this; only the editor's own computed face can.
+    await page.goto("/p/alpha-portal/brief");
+    const editor = page.getByTestId("brief-editor");
+    await expect(editor.locator(".cm-content")).toBeVisible();
+    const face = await editor
+      .locator(".cm-scroller")
+      .evaluate((el) => getComputedStyle(el).fontFamily);
+    expect(face.toLowerCase()).toContain("instrument");
+  });
+
   test("no second display face anywhere on the page", async ({ page }) => {
     // The check above looks at one link on one page, which is not what stops a serif
     // reappearing at a selector nobody thought to assert on. This walks everything.
@@ -278,6 +300,25 @@ test.describe("typography", () => {
     expect(await collectViolations(page, "small-tap")).toEqual([]);
   });
 
+  test("the card drawer is audited too, with a criterion open for editing", async ({ page }) => {
+    /*
+     * The criteria controls - three icon buttons per row, an inline editor, an add form -
+     * exist only inside an opened drawer, so nothing that walks a loaded page measures them.
+     * Against rho-card-page, which nothing resets: board.spec rewrites eta-board's cards
+     * with a plain writeFile, and a card read mid-write is a 422 and a 60-second wait here.
+     */
+    await page.goto("/p/rho-card-page/board");
+    await page.getByTestId("card-1").click();
+    const drawer = page.getByTestId("card-detail");
+    await expect(drawer.getByTestId("criteria")).toBeVisible();
+    await drawer.getByTestId("criterion-edit-0").click();
+    await expect(drawer.getByTestId("criterion-input")).toBeVisible();
+
+    expect(await collectViolations(page, "purple")).toEqual([]);
+    expect(await collectViolations(page, "small-text")).toEqual([]);
+    expect(await collectViolations(page, "small-tap")).toEqual([]);
+  });
+
   test("the export drawer is audited too, including its error state", async ({ page }) => {
     /*
      * Same blind spot as the column manager, one feature later: the export drawer only
@@ -287,7 +328,7 @@ test.describe("typography", () => {
      * The error path is deliberately included. An error notice is the surface most likely
      * to carry a one-off colour, because it is written once and looked at rarely.
      */
-    await page.goto("/p/alpha-portal/brief");
+    await page.goto("/p/alpha-portal/settings");
     await page.getByTestId("export-open").click();
     await expect(page.getByTestId("export-drawer")).toBeVisible();
 
@@ -484,7 +525,7 @@ test.describe("mobile at 390x844", () => {
     // The drawer holds a <pre> of arbitrary content from the user's disk. It has to scroll
     // inside its own box; if it widens the page instead, every screen at this width is
     // wrong while the drawer is open.
-    await page.goto("/p/alpha-portal/brief");
+    await page.goto("/p/alpha-portal/settings");
     await page.getByTestId("export-open").click();
     await expect(page.getByTestId("export-drawer")).toBeVisible();
 

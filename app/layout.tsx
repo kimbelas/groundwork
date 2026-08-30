@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 
 import { Rail } from "@/components/rail/Rail";
 import { RailShell } from "@/components/rail/RailShell";
+import { ToastProvider } from "@/components/ui/Toast";
 import { THEME_COOKIE, parseTheme } from "@/lib/theme";
 
 import "./globals.css";
@@ -69,7 +70,20 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       className={`${sans.variable} ${jetbrainsMono.variable}`}
     >
       <body>
-        <RailShell rail={<Rail />}>{children}</RailShell>
+        {/*
+          The notification layer wraps the shell rather than living inside it: `RailShell` is
+          about a rail that becomes a drawer, and a message store is a second job. Wrapping
+          costs nothing — `RailShell` is already a client component, and `rail` and `children`
+          are server-rendered nodes passed as props, so nothing extra is pulled to the client.
+
+          Above the shell also means the viewport is the last child of the body, so its dismiss
+          buttons come after the page in tab order, and — the reason that matters — a toast
+          raised just before a `router.replace` survives the navigation, which is the only way
+          trashing a card from its own page can report anything at all.
+        */}
+        <ToastProvider>
+          <RailShell rail={<Rail />}>{children}</RailShell>
+        </ToastProvider>
       </body>
     </html>
   );

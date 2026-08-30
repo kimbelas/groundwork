@@ -2,10 +2,54 @@ import { z } from "zod";
 
 import { applyProposal, SelectionSchema } from "@/lib/ai/apply";
 import { proposalWarnings, verifyGrounding } from "@/lib/ai/grounding";
-import { VaultError } from "@/lib/errors";
+import { mergeCardBody } from "@/lib/ai/merge";
+import { isVaultError, VaultError } from "@/lib/errors";
 import { readJson, route } from "@/lib/http";
-import { assertRunId, listRuns, readExcerpts, readProposal, readRun, updateRun } from "@/lib/runs";
-import { getProject } from "@/lib/vault";
+import {
+  assertRunId,
+  pendingRunFor,
+  readExcerpts,
+  readProposal,
+  readRun,
+  updateRun,
+} from "@/lib/runs";
+import { getCard, getProject } from "@/lib/vault";
+
+import type { CardUpdateDiff } from "@/lib/ai/merge";
+import type { Proposal } from "@/lib/ai/types";
+
+/**
+ * What each `update` card would do to the card as it is right now, computed with the same
+ * merge the apply runs. The browser never merges; it shows this and sends back the baseline.
+ * A card deleted since the run is reported as missing rather than failing the whole review.
+ */
+async function updateDiffs(slug: string, proposal: Proposal): Promise<Record<string, CardUpdateDiff>> {
+  const out: Record<string, CardUpdateDiff> = {};
+  for (const [index, c] of proposal.cards.entries()) {
+    if (c.op !== "update" || typeof c.id !== "number") continue;
+    try {
+      const card = await getCard(slug, c.id);
+      const { report } = mergeCardBody(card.body, { body: c.body, acceptance: c.acceptance });
+      out[String(index)] = {
+        cardId: c.id,
+        mtimeMs: card.mtimeMs,
+        /*
+           An update that does not change the title omits it, so "after" is the title it keeps.
+           Rendering `undefined` here would show the diff as a rename to nothing.
+        */
+        title: { before: card.title, after: c.title ?? card.title },
+        report,
+      };
+    } catch (e) {
+      if (isVaultError(e) && e.code === "not_found") {
+        out[String(index)] = { cardId: c.id, mtimeMs: 0, missing: true };
+        continue;
+      }
+      throw e;
+    }
+  }
+  return out;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +69,10 @@ export const GET = route(async (req) => {
 
   let runId = runParam;
   if (!runId) {
-    // No run named: offer the newest ready proposal for this project, which is how a
-    // tab that was closed mid-run finds its result again.
+    // No run named: offer the newest ready PROJECT-level proposal, which is how a tab that
+    // was closed mid-run finds its result again. Card enhancements are found by their card.
     const slug = Slug.parse(slugParam);
-    const latest = (await listRuns(slug)).find((r) => r.status === "ready" && !r.appliedAt);
+    const latest = await pendingRunFor(slug, { job: ["synthesize", "critique"] });
     if (!latest) return Response.json({ run: null });
     runId = latest.runId;
   }
@@ -60,6 +104,7 @@ export const GET = route(async (req) => {
     proposal: result.proposal,
     grounding: verifyGrounding(project.brief, result.proposal, excerpts),
     warnings: proposalWarnings(project.brief, result.proposal, excerpts),
+    updates: await updateDiffs(run.slug, result.proposal),
   });
 });
 
