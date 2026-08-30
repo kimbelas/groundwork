@@ -17,9 +17,13 @@ Fuzzy search over: every project, every card title, every view, and every comman
 *Done when:* you can reach any card in any project in three keystrokes plus Enter, without touching the mouse.
 
 ### A3. Vault-wide search
-Plain text search across all briefs, cards, logs, and risks. Results grouped by project, showing the matching line with the term highlighted.
+Plain text search across all briefs, cards, logs, risks and questions. Results grouped by project, showing the matching line with the term highlighted. The field lives in a bar across the top of every page, at every width - it used to be a rail link, and below 900px there was no bar to put it in.
 
-*Done when:* searching a word that exists only inside one card body returns that card and nothing else.
+**Or a card number.** `#7`, `# 7`, or a bare `7` returns that card in every project that has one, answered from the cached link graph without touching disk. The number is on the card's tile for this reason: it is what someone writes on a slip of paper at a counter, so typing it back has to be the fastest route there is. Ids are permanent - `lib/vault.ts` never reuses one, even after a card is trashed.
+
+The two-character minimum moved out of the page and the route and into `searchVault`, because the rule stopped being about length: a single letter is a scan of every line in the vault, and a single digit is an exact lookup. Only the search itself can tell those apart.
+
+*Done when:* searching a word that exists only inside one card body returns that card and nothing else, and a bare digit finds the card with that id.
 
 ### A4. New project
 Name, slug (auto-derived, editable), archetype. Scaffolds the folder with an empty `project.md`, `roadmap.md`, `log.md`, `risks.md`, `questions.md`, and `cards/`.
@@ -30,17 +34,17 @@ Surrounding quotes are stripped from a pasted path. Windows Explorer's "Copy as 
 
 *Done when:* a project created in the UI is indistinguishable on disk from one written by hand to spec, and one created from a repository lands on its brief with the repo already connected.
 
-### A6. Project settings tab
-The connected repository (and its search index), export, and delete project. All three lived at the foot of the Brief and none of them belonged there: the Brief is a document you write, and these are things you do to the project as a whole. Stacked under the editor they also pushed the AI panel — the reason you open the Brief — into the middle of a long scroll. Labelled "Settings" like the app-level page in the rail, so a locator on a project page has to be scoped; the project nav carries `aria-label="Project views"` for that. Wrapped in `ProjectDocProvider` because two of the three write `project.md` — connecting a repo patches one field, deleting removes the file — and one baseline per file holds even on a quiet page.
-
-*Done when:* the Brief carries none of the three, the tab reaches all of them, and the audit at 390px passes on the new page.
-
 ### A5. Delete project
-At the foot of the Brief, below everything the project contains, because you should have to scroll past the plan to reach the button that removes it. Asks in a blocking `ConfirmDialog` that names the project, and moves the whole folder to `vault/.trash/<slug>-<timestamp>/` rather than unlinking it - the same trade as deleting a card, one level up, and the reason the dialog can honestly say nothing is erased. The timestamp keeps two removals of the same slug apart, which also stops the second one failing outright on Windows. Carries `expectedMtimeMs` like every other write: what it protects is not the bytes, which are about to move wholesale, but the user's reading of them - if the project changed after the page loaded, the thing being confirmed is not the thing on disk. Refused outright while an AI run holds the project. The confirmation arrives as a toast, because the page that asked has ceased to exist by the time there is anything to report.
+At the foot of the Settings tab, below everything else on it, because you should have to scroll past the rest before reaching the button that removes the project. Asks in a blocking `ConfirmDialog` that names the project, and moves the whole folder to `vault/.trash/<slug>-<timestamp>/` rather than unlinking it - the same trade as deleting a card, one level up, and the reason the dialog can honestly say nothing is erased. The timestamp keeps two removals of the same slug apart, which also stops the second one failing outright on Windows. Carries `expectedMtimeMs` like every other write: what it protects is not the bytes, which are about to move wholesale, but the user's reading of them - if the project changed after the page loaded, the thing being confirmed is not the thing on disk. Refused outright while an AI run holds the project. The confirmation arrives as a toast, because the page that asked has ceased to exist by the time there is anything to report.
 
 Also offered per row on the dashboard, so removing a scratch project does not mean opening it first. The row's precondition is server-rendered into it — `ProjectEntry` carries `project.md`'s mtime on both its variants — which is what makes the guard mean something: re-reading the mtime on click would only guard the microseconds around the request, while the rendered one guards the whole time the page sat open. Carrying it on the *unreadable* variant too is what lets a project that will not parse be deleted from the UI at all, which is the one a user most wants rid of. Both outcomes report as toasts there, because the row is gone on success and a `Notice` inside a table cell disappears at 390px where the table becomes a stack of cards.
 
 *Done when:* a deleted project is gone from the rail and the dashboard, recoverable by moving one folder back out of `.trash/`, a delete that raced an edit refuses without moving anything, and an unreadable project can be removed without touching the filesystem.
+
+### A6. Project settings tab
+The connected repository (and its search index), export, and delete project. All three lived at the foot of the Brief and none of them belonged there: the Brief is a document you write, and these are things you do to the project as a whole. Stacked under the editor they also pushed the AI panel — the reason you open the Brief — into the middle of a long scroll. Labelled "Settings" like the app-level page in the rail, so a locator on a project page has to be scoped; the project nav carries `aria-label="Project views"` for that. Wrapped in `ProjectDocProvider` because two of the three write `project.md` — connecting a repo patches one field, deleting removes the file — and one baseline per file holds even on a quiet page.
+
+*Done when:* the Brief carries none of the three, the tab reaches all of them, and the audit at 390px passes on the new page.
 
 ---
 
@@ -61,9 +65,13 @@ Stage, health, and archetype as inline editable controls above the editor. Write
 ## C. Board
 
 ### C1. Kanban from files
-Columns come from `project.md` frontmatter. Cards come from `cards/*.md`, placed by their `column` and sorted by `order`. Each card shows title, a status chip, priority, size, and confidence.
+Columns come from `project.md` frontmatter. Cards come from `cards/*.md`, placed by their `column` and sorted by `order`. Each card shows its **number**, title, a status chip, priority, size, and confidence. The number is the card's permanent id — never reused, even after a trash — and it is what `#7` finds in search.
 
-*Done when:* editing a card file's `column` in a text editor and refreshing moves the card on the board.
+**A lane caps at about five cards and scrolls inside itself** (`min(840px, 60vh)`). A first synthesis drops a dozen or more cards into one column, and uncapped the board grew past the bottom of the screen — so comparing two columns meant scrolling down and sideways at once, with the headings gone off the top. Not exactly five: CSS cannot count children, and a measured card is 145–177px depending on whether it carries a progress bar. The viewport half of that `min()` is what stops a lane running off a laptop, which is the thing the cap exists to prevent.
+
+**"Add a card" sits below the scroll area, not inside it.** In a column of fourteen it used to sit fourteen cards down, so adding one meant scrolling past every card you were not adding.
+
+*Done when:* editing a card file's `column` in a text editor and refreshing moves the card on the board, and a lane of seven scrolls without the board growing past the viewport.
 
 ### C2. Drag and drop
 `@dnd-kit` for both cross-column moves and within-column reordering. The write happens on drop, not on every hover frame.
@@ -123,15 +131,6 @@ A dedicated view. Each question has status open or answered, the answer text, an
 
 *Done when:* answering a question and re-running synthesis produces different output that reflects the answer.
 
-### D5b. Suggested answers
-On the Questions tab, **Suggest answers** runs a `suggest-answers` job over the open questions and offers up to three candidate answers each, with one line on why and what it costs. The manual box stays underneath as the fourth option, undressed on purpose — it was already there, and styling it as a card would suggest it is another suggestion.
-
-Choosing an option **fills the box, it does not commit it.** The answer becomes a confirmed fact handed to every later run, so the last edit before it becomes one is the user's; a one-click store makes a misread option permanent. Each option says whether it is *quoted from the brief* or *inferred, not stated* — the distinction matters more here than anywhere else in the app, because an inference that reads as a decision the project already made is the one thing that corrupts the record it feeds.
-
-Three is what the prompt asks for; one is what the schema tolerates. A hard minimum would throw away a whole run because the model could only find two honest answers to one question out of ten — the same failure shape as a single absent `groundedIn` invalidating a proposal of sixteen cards. Nothing is written to the vault: the run's output is read from the run directory, and only what the user clicks and saves is stored.
-
-*Done when:* a question with three options and a question with one both render correctly, choosing an option leaves it editable, and answering by hand with no run at all still works.
-
 ### D6. Critique
 Reads the whole project and returns gaps, new risks, and new questions. Never edits cards.
 
@@ -140,6 +139,17 @@ Reads the whole project and returns gaps, new risks, and new questions. Never ed
 ---
 
 ## E. Roadmap
+
+### D7. Suggested answers
+Every open question on the Questions tab carries up to three candidate answers, with one line on the trade-off and a **Recommended** badge on the one the model would pick — exactly one per question, because a badge on everything says nothing. The manual box stays underneath as the fourth option, undressed on purpose: it was already there, and styling it as a card would suggest it is another suggestion.
+
+**There is no button.** The run starts on arrival, because a question with no options is a question you answer from a blank box — the thing this removes — so putting it behind a click withheld the help exactly when it was most useful. Guarded three ways, since it spawns a model run: once per mount, never while a run is in flight or one has been read, and no retry after a failure. One run that produced nothing is a message; a loop of them is a bill.
+
+Choosing an option **fills the box, it does not commit it.** The answer becomes a confirmed fact handed to every later run, so the last edit before it becomes one is the user's; a one-click store makes a misread option permanent. Each option says whether it is *quoted from the brief* or *inferred, not stated* — that distinction matters more here than anywhere else in the app, because an inference reading as a decision the project already made is the one thing that corrupts the record it feeds.
+
+Three is what the prompt asks for; one is what the schema tolerates. Over-length text is **truncated to one sentence, never rejected** — a `.max()` on option text once refused output written minutes earlier, and length is a presentation problem where grounding is a correctness one. Nothing is written to the vault: the run's output is read from the run directory, and only what the user clicks and saves is stored.
+
+*Done when:* a question with three options and a question with one both render correctly, exactly one option carries the badge, choosing one leaves it editable, and answering by hand with no run at all still works.
 
 ### E1. Phase track
 Horizontal track of phases from `roadmap.md`, each showing its name, goal, and the cards assigned to it with a done/total count.
